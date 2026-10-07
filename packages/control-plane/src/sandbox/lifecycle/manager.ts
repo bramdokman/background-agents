@@ -1334,6 +1334,7 @@ export class SandboxLifecycleManager
         sessionId: session.session_name || session.id,
         sandboxId: sandbox.modal_sandbox_id,
         timeoutSeconds,
+        generationCreatedAtMs: generation.createdAt,
         codeServerEnabled: session.code_server_enabled === 1,
         vncEnabled: session.vnc_enabled === 1,
         sandboxSettings,

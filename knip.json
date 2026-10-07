@@ -32,7 +32,7 @@
       }
     },
     "packages/control-plane": {
-      "entry": ["test/integration/**/*.test.ts"],
+      "entry": ["test/integration/**/*.test.ts", "scripts/kubernetes-provider-smoke.ts"],
       "project": ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts"]
     },
     "packages/github-bot": {

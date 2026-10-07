@@ -5,7 +5,7 @@
 import type { CacheStore } from "@open-inspect/shared/cache-store";
 import type { SqlDatabase } from "./db/sql-database";
 import type { Jobs } from "./jobs";
-import type { FetchClient, QueueMetricsSource } from "./platform-ports";
+import type { FetchClient, KubernetesCredentials, QueueMetricsSource } from "./platform-ports";
 import type { SessionRuntimeDispatch } from "./session/runtime-client";
 import type { ObjectStorage } from "./storage/object-storage";
 
@@ -62,7 +62,7 @@ export interface EnvConfig {
   ALLOWED_GITHUB_ORGS?: string;
   UNSAFE_ALLOW_ALL_USERS?: string;
   CF_ACCOUNT_ID?: string; // Cloudflare account ID
-  SANDBOX_PROVIDER?: string; // "modal" (default), "daytona", "vercel", "opencomputer", or "e2b"
+  SANDBOX_PROVIDER?: string; // "modal" (default), "daytona", "vercel", "opencomputer", "e2b", or "kubernetes"
   MODAL_WORKSPACE?: string; // Modal workspace name
   MODAL_ENVIRONMENT?: string; // Modal environment name for dashboard URLs
   MODAL_ENVIRONMENT_WEB_SUFFIX?: string; // Modal environment web suffix for endpoint URLs
@@ -92,6 +92,23 @@ export interface EnvConfig {
   E2B_TEMPLATE_ID?: string; // Pre-built E2B template ID
   E2B_SANDBOX_TIMEOUT_SECONDS?: string; // Sandbox TTL in seconds; Hobby plans must set 3300
   E2B_AUTO_PAUSE?: string; // "true" (default) pauses on TTL expiry (resumable, auto-resumes) instead of killing
+
+  // Kubernetes sandbox provider (Node host only; see docs/KUBERNETES_SANDBOX_PROVIDER.md)
+  KUBERNETES_API_URL?: string; // API server base URL; defaults to DEFAULT_KUBERNETES_API_URL
+  KUBERNETES_API_TOKEN?: string; // Static bearer token; only for hosts without KUBERNETES_CREDENTIALS (tests)
+  KUBERNETES_NAMESPACE?: string; // Sandbox namespace; must differ from the control plane's own
+  KUBERNETES_SANDBOX_IMAGE?: string; // Sandbox image reference, pinned by digest in production
+  KUBERNETES_RUNTIME_CLASS?: string; // RuntimeClass for sandbox pods; defaults to DEFAULT_KUBERNETES_RUNTIME_CLASS
+  KUBERNETES_ALLOW_UNSANDBOXED_RUNTIME?: string; // "true" permits an empty runtime class (throwaway test clusters only)
+  KUBERNETES_STORAGE_CLASS?: string; // StorageClass for workspace PVCs (default: the cluster default)
+  KUBERNETES_WORKSPACE_SIZE?: string; // Workspace PVC request, a Kubernetes quantity; defaults to DEFAULT_KUBERNETES_WORKSPACE_SIZE
+  KUBERNETES_NODE_SELECTOR?: string; // "key=value,key=value" node selector for sandbox pods
+  KUBERNETES_POD_START_TIMEOUT_MS?: string; // How long a create or resume waits for the pod to run; defaults to DEFAULT_KUBERNETES_POD_START_TIMEOUT_MS
+  KUBERNETES_EGRESS_PROXY_URL?: string; // HTTP CONNECT proxy injected as HTTPS_PROXY; an IP host makes sandboxes DNS-less
+  KUBERNETES_REQUIRE_NETWORK_POLICY?: string; // "false" skips the egress NetworkPolicy preflight and the start-time egress check
+  KUBERNETES_EGRESS_PROBE_HOST?: string; // IP a pod must fail to reach directly before its sandbox starts; defaults to DEFAULT_EGRESS_PROBE_HOST
+  KUBERNETES_SANDBOX_CONTROL_PLANE_URL?: string; // In-cluster https URL sandboxes use instead of WORKER_URL
+  KUBERNETES_SANDBOX_CA_CERT?: string; // PEM CA sandboxes trust in addition to the system store
 
   // Sandbox lifecycle configuration
   SANDBOX_INACTIVITY_TIMEOUT_MS?: string; // Inactivity timeout in ms (default: 600000 = 10 min)
@@ -128,6 +145,12 @@ export interface Platform {
   AUTOFIX_DLQ?: QueueMetricsSource;
   /** Durable background work supplied by every host. */
   JOBS: Jobs;
+  /**
+   * The host's Kubernetes API identity, for SANDBOX_PROVIDER=kubernetes. Only
+   * the Node host running in a pod supplies it; elsewhere the provider falls
+   * back to the static KUBERNETES_API_TOKEN.
+   */
+  KUBERNETES_CREDENTIALS?: KubernetesCredentials;
 }
 
 /** What the application runs against: its configuration and the platform ports. */

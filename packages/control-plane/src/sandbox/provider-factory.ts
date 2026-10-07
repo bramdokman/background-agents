@@ -1,6 +1,12 @@
 import { createModalClient } from "./client";
 import { createDaytonaRestClient, type DaytonaRestClient } from "./daytona-rest-client";
 import { createE2BRestClient } from "./e2b-rest-client";
+import { DEFAULT_EGRESS_PROBE_HOST } from "./kubernetes-manifests";
+import {
+  createKubernetesRestClient,
+  isDnsLabel,
+  staticKubernetesCredentials,
+} from "./kubernetes-rest-client";
 import { createOpenComputerRestClient } from "./opencomputer-rest-client";
 import { resolveSandboxBackendName, type SandboxBackendName } from "./provider-name";
 import type { SandboxProvider } from "./provider";
@@ -11,6 +17,14 @@ import {
   DEFAULT_E2B_SANDBOX_TIMEOUT_SECONDS,
   type E2BSandboxProvider,
 } from "./providers/e2b-provider";
+import {
+  createKubernetesProvider,
+  DEFAULT_KUBERNETES_POD_START_TIMEOUT_MS,
+  DEFAULT_KUBERNETES_RUNTIME_CLASS,
+  DEFAULT_KUBERNETES_WORKSPACE_SIZE,
+  isIpLiteral,
+  type KubernetesSandboxProvider,
+} from "./providers/kubernetes-provider";
 import { createModalProvider, type ModalSandboxProvider } from "./providers/modal-provider";
 import {
   createOpenComputerProvider,
@@ -168,8 +182,121 @@ function createE2BProviderFromEnv(env: Env): E2BSandboxProvider {
   });
 }
 
+/** In-cluster API server address, reachable from any pod through the default Service. */
+const DEFAULT_KUBERNETES_API_URL = "https://kubernetes.default.svc";
+
+function createKubernetesProviderFromEnv(env: Env): KubernetesSandboxProvider {
+  const namespace = env.KUBERNETES_NAMESPACE?.trim();
+  const sandboxImage = env.KUBERNETES_SANDBOX_IMAGE?.trim();
+  if (!namespace || !sandboxImage) {
+    throw new Error(
+      "KUBERNETES_NAMESPACE and KUBERNETES_SANDBOX_IMAGE are required when SANDBOX_PROVIDER=kubernetes"
+    );
+  }
+  if (!isDnsLabel(namespace)) {
+    throw new Error(`KUBERNETES_NAMESPACE is not a valid namespace name: ${namespace}`);
+  }
+
+  const credentials =
+    env.KUBERNETES_CREDENTIALS ??
+    (env.KUBERNETES_API_TOKEN ? staticKubernetesCredentials(env.KUBERNETES_API_TOKEN) : undefined);
+  if (!credentials) {
+    throw new Error(
+      "SANDBOX_PROVIDER=kubernetes needs the host's ServiceAccount token (run the Node host in a pod) or KUBERNETES_API_TOKEN"
+    );
+  }
+  // Sandboxes run agent-controlled code; the control plane's own credentials,
+  // volume and object-store keys must never share their namespace.
+  if (credentials.ownNamespace && credentials.ownNamespace === namespace) {
+    throw new Error(
+      `KUBERNETES_NAMESPACE must not be the control plane's own namespace (${namespace})`
+    );
+  }
+
+  const runtimeClass = (env.KUBERNETES_RUNTIME_CLASS ?? DEFAULT_KUBERNETES_RUNTIME_CLASS).trim();
+  const allowUnsandboxed = parseBooleanEnv(
+    "KUBERNETES_ALLOW_UNSANDBOXED_RUNTIME",
+    env.KUBERNETES_ALLOW_UNSANDBOXED_RUNTIME,
+    false
+  );
+  if (!runtimeClass && !allowUnsandboxed) {
+    throw new Error(
+      "KUBERNETES_RUNTIME_CLASS is empty: sandboxes need a sandboxing runtime (gVisor or Kata). Set KUBERNETES_ALLOW_UNSANDBOXED_RUNTIME=true only for throwaway test clusters"
+    );
+  }
+
+  const sandboxControlPlaneUrl = env.KUBERNETES_SANDBOX_CONTROL_PLANE_URL?.trim() || undefined;
+  if (sandboxControlPlaneUrl && !sandboxControlPlaneUrl.startsWith("https://")) {
+    throw new Error("KUBERNETES_SANDBOX_CONTROL_PLANE_URL must be an https URL");
+  }
+
+  const api = createKubernetesRestClient({
+    apiUrl: env.KUBERNETES_API_URL?.trim() || DEFAULT_KUBERNETES_API_URL,
+    namespace,
+    credentials,
+  });
+
+  return createKubernetesProvider(api, {
+    scmProvider: resolveScmProviderFromEnv(env.SCM_PROVIDER),
+    sandboxImage,
+    runtimeClassName: runtimeClass || null,
+    storageClassName: env.KUBERNETES_STORAGE_CLASS?.trim() || undefined,
+    workspaceSize: env.KUBERNETES_WORKSPACE_SIZE?.trim() || DEFAULT_KUBERNETES_WORKSPACE_SIZE,
+    nodeSelector: parseNodeSelector(env.KUBERNETES_NODE_SELECTOR),
+    podStartTimeoutMs: parseNumericEnv(
+      "KUBERNETES_POD_START_TIMEOUT_MS",
+      env.KUBERNETES_POD_START_TIMEOUT_MS,
+      DEFAULT_KUBERNETES_POD_START_TIMEOUT_MS
+    ),
+    egressProxyUrl: env.KUBERNETES_EGRESS_PROXY_URL?.trim() || undefined,
+    sandboxControlPlaneUrl,
+    sandboxCaCert: env.KUBERNETES_SANDBOX_CA_CERT?.trim() || undefined,
+    requireNetworkPolicy: parseBooleanEnv(
+      "KUBERNETES_REQUIRE_NETWORK_POLICY",
+      env.KUBERNETES_REQUIRE_NETWORK_POLICY,
+      true
+    ),
+    egressProbeHost: parseEgressProbeHost(env.KUBERNETES_EGRESS_PROBE_HOST),
+  });
+}
+
+/**
+ * `KUBERNETES_EGRESS_PROBE_HOST`: the address a pod's prepare step must fail
+ * to reach directly before its sandbox starts. An IP literal only: the pod
+ * may have no resolver, and the value is written into the pod's command.
+ */
+function parseEgressProbeHost(value: string | undefined): string {
+  const host = value?.trim();
+  if (!host) return DEFAULT_EGRESS_PROBE_HOST;
+  if (!/^[0-9a-fA-F.:]+$/.test(host) || !isIpLiteral(host)) {
+    throw new Error("KUBERNETES_EGRESS_PROBE_HOST must be an IP address");
+  }
+  return host;
+}
+
+/** `key=value,key=value`, as `kubectl --selector` writes equality selectors. */
+function parseNodeSelector(value: string | undefined): Record<string, string> {
+  const selector: Record<string, string> = {};
+  for (const part of (value ?? "").split(",")) {
+    const entry = part.trim();
+    if (!entry) continue;
+    const separator = entry.indexOf("=");
+    const key = entry.slice(0, separator).trim();
+    const labelValue = entry.slice(separator + 1).trim();
+    if (separator <= 0 || !key) {
+      throw new Error(`KUBERNETES_NODE_SELECTOR entries must be key=value, got ${entry}`);
+    }
+    selector[key] = labelValue;
+  }
+  return selector;
+}
+
 export function createSandboxProviderFromEnv(env: Env, backend: "daytona"): DaytonaSandboxProvider;
 export function createSandboxProviderFromEnv(env: Env, backend: "e2b"): E2BSandboxProvider;
+export function createSandboxProviderFromEnv(
+  env: Env,
+  backend: "kubernetes"
+): KubernetesSandboxProvider;
 export function createSandboxProviderFromEnv(
   env: Env,
   backend: "modal" | "modal-vm"
@@ -201,6 +328,8 @@ export function createSandboxProviderFromEnv(
       });
     case "e2b":
       return createE2BProviderFromEnv(env);
+    case "kubernetes":
+      return createKubernetesProviderFromEnv(env);
     case "modal":
     case "modal-vm":
       return createModalProviderFromEnv(env, backend);

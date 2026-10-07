@@ -94,4 +94,108 @@ describe("createSandboxProviderFromEnv", () => {
       })
     ).not.toThrow();
   });
+
+  describe("kubernetes", () => {
+    const kubernetes = {
+      KUBERNETES_NAMESPACE: "open-inspect-sandboxes",
+      KUBERNETES_SANDBOX_IMAGE: "registry.test/sandbox@sha256:abc",
+      KUBERNETES_API_TOKEN: "test-token",
+    };
+
+    it("builds the provider with the sandboxing runtime by default", () => {
+      const provider = createSandboxProviderFromEnv(createEnv(kubernetes), "kubernetes");
+      expect(provider.name).toBe("kubernetes");
+      expect(provider.capabilities.supportsPersistentResume).toBe(true);
+    });
+
+    it("requires a namespace and an image", () => {
+      expect(() =>
+        createSandboxProviderFromEnv(
+          createEnv({ ...kubernetes, KUBERNETES_SANDBOX_IMAGE: undefined }),
+          "kubernetes"
+        )
+      ).toThrow("KUBERNETES_NAMESPACE and KUBERNETES_SANDBOX_IMAGE are required");
+      expect(() =>
+        createSandboxProviderFromEnv(
+          createEnv({ ...kubernetes, KUBERNETES_NAMESPACE: "Not_A_Namespace" }),
+          "kubernetes"
+        )
+      ).toThrow("not a valid namespace name");
+    });
+
+    it("requires credentials", () => {
+      expect(() =>
+        createSandboxProviderFromEnv(
+          createEnv({ ...kubernetes, KUBERNETES_API_TOKEN: undefined }),
+          "kubernetes"
+        )
+      ).toThrow(/ServiceAccount token/);
+    });
+
+    it("refuses the control plane's own namespace", () => {
+      const env = createEnv({
+        ...kubernetes,
+        KUBERNETES_CREDENTIALS: { token: async () => "t", ownNamespace: "open-inspect-sandboxes" },
+      });
+      expect(() => createSandboxProviderFromEnv(env, "kubernetes")).toThrow(
+        "must not be the control plane's own namespace"
+      );
+    });
+
+    it("refuses an empty runtime class unless unsandboxed pods are allowed", () => {
+      const unsandboxed = { ...kubernetes, KUBERNETES_RUNTIME_CLASS: "" };
+      expect(() => createSandboxProviderFromEnv(createEnv(unsandboxed), "kubernetes")).toThrow(
+        /sandboxing runtime/
+      );
+      expect(
+        createSandboxProviderFromEnv(
+          createEnv({ ...unsandboxed, KUBERNETES_ALLOW_UNSANDBOXED_RUNTIME: "true" }),
+          "kubernetes"
+        ).name
+      ).toBe("kubernetes");
+    });
+
+    it("rejects malformed settings", () => {
+      expect(() =>
+        createSandboxProviderFromEnv(
+          createEnv({ ...kubernetes, KUBERNETES_NODE_SELECTOR: "no-equals-sign" }),
+          "kubernetes"
+        )
+      ).toThrow("KUBERNETES_NODE_SELECTOR entries must be key=value");
+      expect(() =>
+        createSandboxProviderFromEnv(
+          createEnv({ ...kubernetes, KUBERNETES_POD_START_TIMEOUT_MS: "2m" }),
+          "kubernetes"
+        )
+      ).toThrow("KUBERNETES_POD_START_TIMEOUT_MS must be a valid number");
+      expect(() =>
+        createSandboxProviderFromEnv(
+          createEnv({ ...kubernetes, KUBERNETES_SANDBOX_CONTROL_PLANE_URL: "http://cp:8787" }),
+          "kubernetes"
+        )
+      ).toThrow("must be an https URL");
+      expect(() =>
+        createSandboxProviderFromEnv(
+          createEnv({ ...kubernetes, KUBERNETES_REQUIRE_NETWORK_POLICY: "maybe" }),
+          "kubernetes"
+        )
+      ).toThrow("KUBERNETES_REQUIRE_NETWORK_POLICY must be a valid boolean");
+      for (const host of ["probe.example.com", "1.1.1.1; true", "2001:db8::1 x"]) {
+        expect(() =>
+          createSandboxProviderFromEnv(
+            createEnv({ ...kubernetes, KUBERNETES_EGRESS_PROBE_HOST: host }),
+            "kubernetes"
+          )
+        ).toThrow("KUBERNETES_EGRESS_PROBE_HOST must be an IP address");
+      }
+      for (const host of ["203.0.113.9", "2001:db8::1"]) {
+        expect(
+          createSandboxProviderFromEnv(
+            createEnv({ ...kubernetes, KUBERNETES_EGRESS_PROBE_HOST: host }),
+            "kubernetes"
+          ).name
+        ).toBe("kubernetes");
+      }
+    });
+  });
 });
