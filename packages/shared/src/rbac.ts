@@ -82,6 +82,7 @@ export const PERMISSION_IDS = [
   "skill_profiles.manage_own",
   "skills.manage",
   "skills.read",
+  "usage_quotas.manage",
   "workspace.audit.read",
   "workspace.members.manage",
   "workspace.members.read",
@@ -91,6 +92,19 @@ export const PERMISSION_IDS = [
 
 /** A permission identifier recognized by the RBAC policy. */
 export type PermissionId = (typeof PERMISSION_IDS)[number];
+
+/**
+ * Permissions only the Owner holds: never granted to Administrators and never
+ * delegable through a custom role.
+ */
+export const OWNER_ONLY_PERMISSIONS = [
+  "usage_quotas.manage",
+  "workspace.transfer_ownership",
+] as const satisfies readonly PermissionId[];
+
+function isOwnerOnlyPermission(permission: PermissionId): boolean {
+  return (OWNER_ONLY_PERMISSIONS as readonly PermissionId[]).includes(permission);
+}
 
 /** Permission required to admit a browser WebSocket to the read synchronization protocol. */
 export const SESSION_WEBSOCKET_CONNECT_PERMISSION = "sessions.read" as const satisfies PermissionId;
@@ -170,7 +184,7 @@ export const builtInRoleKeySchema = z.enum(BUILT_IN_ROLE_KEYS);
 export function permissionsForBuiltInRole(role: BuiltInRoleKey): PermissionId[] {
   if (role === "owner") return [...PERMISSION_IDS];
   if (role === "administrator") {
-    return PERMISSION_IDS.filter((permission) => permission !== "workspace.transfer_ownership");
+    return PERMISSION_IDS.filter((permission) => !isOwnerOnlyPermission(permission));
   }
   const permissions = role === "member" ? MEMBER_PERMISSIONS : VIEWER_PERMISSIONS;
   return PERMISSION_IDS.filter((permission) => permissions.has(permission));
@@ -183,7 +197,7 @@ export function isRegisteredPermission(value: string): value is PermissionId {
 
 /** Reports whether a permission may be delegated through a custom role. */
 export function isCustomRolePermission(permission: PermissionId): boolean {
-  return permission !== "workspace.transfer_ownership";
+  return !isOwnerOnlyPermission(permission);
 }
 
 const roleNameSchema = z.string().min(1);

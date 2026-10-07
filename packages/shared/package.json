@@ -82,6 +82,10 @@
       "import": "./dist/types/teams.js",
       "types": "./dist/types/teams.d.ts"
     },
+    "./types/usage-quotas": {
+      "import": "./dist/types/usage-quotas.js",
+      "types": "./dist/types/usage-quotas.d.ts"
+    },
     "./types/team-channel-bindings": {
       "import": "./dist/types/team-channel-bindings.js",
       "types": "./dist/types/team-channel-bindings.d.ts"
