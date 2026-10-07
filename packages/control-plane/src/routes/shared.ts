@@ -139,6 +139,7 @@ const AUDITED_ALLOWED_PERMISSIONS = new Set<PermissionId>([
   "skill_profiles.manage_own",
   "memories.manage_own",
   "skills.manage",
+  "usage_quotas.manage",
   "workspace.members.manage",
   "workspace.transfer_ownership",
 ]);

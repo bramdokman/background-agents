@@ -39,16 +39,31 @@ describe("route policy table", () => {
   });
 
   it("publishes the complete canonical route catalog", () => {
-    expect(routes).toHaveLength(235);
+    expect(routes).toHaveLength(239);
 
     const paths = routes.map((route) => route.path);
-    expect(new Set(paths).size).toBe(178);
-    expect(new Set(routes.map((route) => `${route.method}:${route.path}`)).size).toBe(235);
+    expect(new Set(paths).size).toBe(181);
+    expect(new Set(routes.map((route) => `${route.method}:${route.path}`)).size).toBe(239);
     expect(routeFor("POST", "/sessions/session-1/sandbox-memory/search")).toMatchObject({
       authentication: { kind: "sandbox" },
       supportedScmProviders: "all",
       cacheControl: "private, no-store",
     });
+  });
+
+  it("reserves usage quota management for the Owner-only permission", () => {
+    for (const [method, path] of [
+      ["GET", "/usage-quotas"],
+      ["PUT", "/usage-quotas"],
+      ["DELETE", "/usage-quotas/quota-1"],
+      ["GET", "/usage-quotas/usage/user-1"],
+    ] as const) {
+      expect(routeFor(method, path)?.authorization, `${method} ${path}`).toMatchObject({
+        kind: "active-user",
+        allOf: [{ kind: "permission", permission: "usage_quotas.manage" }],
+        service: { kind: "deny" },
+      });
+    }
   });
 
   it("gates run analytics with analytics.read", () => {
