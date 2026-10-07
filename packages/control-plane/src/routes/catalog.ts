@@ -37,6 +37,7 @@ import { skillRoutes } from "./skills";
 import { teamRoutes } from "./teams";
 import { teamChannelBindingRoutes } from "./team-channel-bindings";
 import { teamSecretsRoutes } from "./team-secrets";
+import { usageQuotaRoutes } from "./usage-quotas";
 import { teamSettingsRoutes } from "./settings-teams";
 
 /** Registration order is the precedence order: each module is mounted where it appears. */
@@ -93,6 +94,9 @@ export const catalog: readonly RouteModule[] = [
 
   // Analytics
   analyticsRoutes,
+
+  // Workspace usage quotas and metered usage
+  usageQuotaRoutes,
 
   // Workspace audit log
   auditEventRoutes,
