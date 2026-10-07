@@ -1,0 +1,195 @@
+# Pins the shape of every pod and claim in the sandbox namespace, whoever
+# creates it. Together with Pod Security "restricted", a fully compromised
+# control plane can only create unprivileged pods, under the sandboxing
+# runtime, running the pinned image, that read their own Secret and mount
+# their own workspace claim, with no ServiceAccount token.
+#
+# A pod is a sandbox (openinspect.dev/role=sandbox, exactly the provider's
+# three labels) or the egress proxy (created by the ReplicaSet controller,
+# running the pinned image and command, reading no Secret). NetworkPolicies
+# are additive and select by label, so neither may wear the other's labels:
+# a sandbox wearing the proxy's label would get the proxy's direct egress.
+# Ephemeral containers are refused outright.
+#
+# What this does not cover: a compromise of the node itself (a runtime
+# escape, or another privileged workload on the same node can read every
+# Secret and volume there). See docs/KUBERNETES_SANDBOX_PROVIDER.md.
+#
+# Cluster-scoped objects: two ValidatingAdmissionPolicies and their bindings.
+# The deployment's values (runtime class, image references, the control
+# plane's identity) are the first four variables, which an overlay replaces.
+# They are not a params ConfigMap: on k3s v1.36.5 the API server did not
+# notice a params ConfigMap created or changed after the binding (a new one
+# answered "no params found", a changed one kept its old values), while
+# policy edits apply at once.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: open-inspect-sandbox-pods
+  labels:
+    app.kubernetes.io/part-of: open-inspect
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods", "pods/ephemeralcontainers"]
+  variables:
+    # --- deployment values (replace in an overlay) -----------------------
+    - name: runtimeClass
+      expression: "'gvisor'"
+    # Exact image references sandbox pods may run; pin digests.
+    - name: sandboxImages
+      expression: "['REPLACE_WITH_SANDBOX_IMAGE']"
+    - name: proxyImage
+      expression: "'ubuntu/squid:6.6-24.04_beta@sha256:6a097f68bae708cedbabd6188d68c7e2e7a38cedd05a176e1cc0ba29e3bbe029'"
+    # The only identity that may create sandbox pods.
+    - name: controlPlaneUser
+      expression: "'system:serviceaccount:open-inspect:open-inspect-control-plane'"
+    # The proxy's exact command (egress-proxy.yaml), and the only identity
+    # that may create proxy pods: its Deployment's ReplicaSet.
+    - name: proxyCommand
+      expression: "['/usr/sbin/squid', '-f', '/etc/squid-oi/squid.conf', '-N']"
+    - name: proxyCreator
+      expression: "'system:serviceaccount:kube-system:replicaset-controller'"
+    # --- derived ---------------------------------------------------------
+    - name: labels
+      expression: "has(object.metadata.labels) ? object.metadata.labels : {}"
+    - name: isSandbox
+      expression: "variables.labels[?'openinspect.dev/role'].orValue('') == 'sandbox'"
+    - name: sandboxHash
+      expression: "variables.labels[?'openinspect.dev/sandbox'].orValue('')"
+    - name: containers
+      expression: "object.spec.containers + object.spec.?initContainers.orValue([])"
+    - name: allowedImages
+      expression: >-
+        variables.isSandbox ? variables.sandboxImages : [variables.proxyImage]
+  validations:
+    # --- every pod -------------------------------------------------------
+    - expression: "object.spec.?ephemeralContainers.orValue([]).size() == 0"
+      message: "ephemeral containers are not allowed"
+    - expression: "object.spec.?runtimeClassName.orValue('') == variables.runtimeClass"
+      messageExpression: "'pods in this namespace must use runtimeClassName ' + variables.runtimeClass"
+    - expression: "object.spec.?automountServiceAccountToken.orValue(true) == false"
+      message: "pods in this namespace must set automountServiceAccountToken: false"
+    - expression: >-
+        object.spec.?serviceAccountName.orValue('default') == 'default'
+      message: "pods in this namespace must use the default ServiceAccount"
+    - expression: "variables.containers.all(c, c.image in variables.allowedImages)"
+      message: "image is not one of the pinned images for this pod's role"
+    - expression: >-
+        (!object.spec.?hostNetwork.orValue(false) && !object.spec.?hostPID.orValue(false) &&
+         !object.spec.?hostIPC.orValue(false) && !has(object.spec.hostAliases) &&
+         !has(object.spec.imagePullSecrets))
+      message: "host namespaces, hostAliases and imagePullSecrets are not allowed"
+    - expression: "request.operation != 'CREATE' || !has(object.spec.nodeName)"
+      message: "pods may not bypass the scheduler with spec.nodeName"
+    - expression: >-
+        object.spec.?volumes.orValue([]).all(v, has(v.persistentVolumeClaim) || has(v.emptyDir) ||
+          (!variables.isSandbox && has(v.configMap) &&
+           v.configMap.name.startsWith('egress-proxy-config')))
+      message: "only persistentVolumeClaim and emptyDir volumes are allowed (plus the proxy config); no secret, projected, hostPath, ephemeral, csi or downwardAPI"
+    # --- the proxy: anything that is not a sandbox must be the proxy ------
+    - expression: >-
+        variables.isSandbox ||
+        (variables.labels[?'app.kubernetes.io/name'].orValue('') == 'egress-proxy' &&
+         object.spec.?volumes.orValue([]).all(v, !has(v.persistentVolumeClaim)))
+      message: "the only non-sandbox pod allowed here is the egress proxy, and it mounts no claims"
+    - expression: >-
+        variables.isSandbox || !variables.labels.exists(k, k.startsWith('openinspect.dev/'))
+      message: "the egress proxy carries no openinspect.dev labels"
+    - expression: >-
+        variables.isSandbox || request.operation != 'CREATE' ||
+        (request.userInfo.username == variables.proxyCreator &&
+         object.metadata.?ownerReferences.orValue([]).exists(o,
+           o.kind == 'ReplicaSet' && o.?controller.orValue(false)))
+      messageExpression: "'only ' + variables.proxyCreator + ' may create egress proxy pods'"
+    - expression: >-
+        variables.isSandbox ||
+        variables.containers.all(c,
+          !has(c.envFrom) && c.?env.orValue([]).all(e, !has(e.valueFrom)) &&
+          c.?command.orValue([]) == variables.proxyCommand && !has(c.args))
+      message: "the egress proxy runs its pinned command and reads no Secret or other reference"
+    # --- sandbox pods ----------------------------------------------------
+    - expression: >-
+        !variables.isSandbox ||
+        variables.labels.all(k, k in ['app.kubernetes.io/managed-by', 'openinspect.dev/role',
+          'openinspect.dev/sandbox'])
+      message: "sandbox pods carry only the managed-by, role and sandbox labels"
+    - expression: >-
+        !variables.isSandbox || request.operation != 'CREATE' ||
+        request.userInfo.username == variables.controlPlaneUser
+      messageExpression: "'only ' + variables.controlPlaneUser + ' may create sandbox pods'"
+    - expression: >-
+        !variables.isSandbox ||
+        (variables.sandboxHash.matches('^[0-9a-f]{20}$') &&
+         object.metadata.name.startsWith('oi-' + variables.sandboxHash + '-'))
+      message: "sandbox pods are named after their sandbox label"
+    - expression: >-
+        !variables.isSandbox ||
+        object.spec.?volumes.orValue([]).all(v, !has(v.persistentVolumeClaim) ||
+          v.persistentVolumeClaim.claimName == 'oi-' + variables.sandboxHash)
+      message: "a sandbox pod may mount only its own workspace claim"
+    - expression: >-
+        !variables.isSandbox ||
+        variables.containers.all(c,
+          c.?envFrom.orValue([]).all(e, has(e.secretRef) && !has(e.configMapRef) &&
+            e.secretRef.name == 'oi-' + variables.sandboxHash) &&
+          c.?env.orValue([]).all(e, !has(e.valueFrom)))
+      message: "a sandbox pod may read only its own Secret, and only through envFrom"
+    - expression: >-
+        !variables.isSandbox || !has(object.spec.dnsPolicy) ||
+        object.spec.dnsPolicy == 'ClusterFirst' ||
+        (object.spec.dnsPolicy == 'None' && object.spec.?dnsConfig.?nameservers.orValue([]) == ['127.0.0.1'])
+      message: "sandbox pods use cluster DNS or none at all"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: open-inspect-sandbox-pods
+  labels:
+    app.kubernetes.io/part-of: open-inspect
+spec:
+  policyName: open-inspect-sandbox-pods
+  validationActions: ["Deny"]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: open-inspect-sandboxes
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: open-inspect-sandbox-claims
+  labels:
+    app.kubernetes.io/part-of: open-inspect
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["persistentvolumeclaims"]
+  validations:
+    - expression: >-
+        has(object.metadata.labels) &&
+        object.metadata.labels[?'app.kubernetes.io/managed-by'].orValue('') == 'open-inspect' &&
+        !has(object.spec.dataSource) && !has(object.spec.dataSourceRef)
+      message: "claims here are Open-Inspect workspaces and start empty (no dataSource clones)"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: open-inspect-sandbox-claims
+  labels:
+    app.kubernetes.io/part-of: open-inspect
+spec:
+  policyName: open-inspect-sandbox-claims
+  validationActions: ["Deny"]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: open-inspect-sandboxes

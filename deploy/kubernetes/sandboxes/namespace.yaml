@@ -1,0 +1,13 @@
+# The namespace where agent-controlled code runs. Nothing of the control
+# plane's lives here: its credentials, volume and object-store keys stay in
+# its own namespace. Pod Security "restricted" is enforced, not only audited.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: open-inspect-sandboxes
+  labels:
+    app.kubernetes.io/part-of: open-inspect
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

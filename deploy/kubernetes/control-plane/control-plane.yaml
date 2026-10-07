@@ -1,0 +1,241 @@
+# The control plane as the Node host (packages/control-plane/Dockerfile): one
+# replica, Recreate, its SQLite files on a ReadWriteOnce volume. Configuration
+# comes from the Secret `open-inspect-control-plane-env` (keys as in
+# .env.example), created out of band.
+#
+# A Caddy sidecar terminates TLS for sandboxes on :8443 with a certificate
+# from an internal CA (Secret `open-inspect-sandbox-gateway-tls`), and passes
+# on only the paths a sandbox calls. Sandboxes reach it in-cluster
+# (KUBERNETES_SANDBOX_CONTROL_PLANE_URL) and trust the CA through
+# KUBERNETES_SANDBOX_CA_CERT; the control plane itself never needs to be
+# public for its sandboxes.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: open-inspect-control-plane
+  namespace: open-inspect
+  labels:
+    app.kubernetes.io/name: open-inspect-control-plane
+    app.kubernetes.io/part-of: open-inspect
+# The token is mounted explicitly below, with a bounded lifetime.
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: open-inspect-control-plane-data
+  namespace: open-inspect
+  labels:
+    app.kubernetes.io/name: open-inspect-control-plane
+    app.kubernetes.io/part-of: open-inspect
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: open-inspect-sandbox-gateway
+  namespace: open-inspect
+  labels:
+    app.kubernetes.io/part-of: open-inspect
+data:
+  Caddyfile: |
+    {
+      auto_https off
+      admin off
+      persist_config off
+    }
+    # Sandbox-facing surface only: the session socket and the session routes
+    # sandboxes call (callbacks, credentials, tools). Those are spread over
+    # many /sessions/<id>/... paths, each checking the sandbox token, so the
+    # prefix is matched rather than a list that new tools would outgrow.
+    # Image-build callbacks are left out: this provider runs no builds.
+    # Everything else answers 404 here.
+    :8443 {
+      tls /etc/sandbox-gateway-tls/tls.crt /etc/sandbox-gateway-tls/tls.key
+      @sandbox path /sessions/*
+      handle @sandbox {
+        reverse_proxy 127.0.0.1:8787
+      }
+      handle {
+        respond 404
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: open-inspect-control-plane
+  namespace: open-inspect
+  labels:
+    app.kubernetes.io/name: open-inspect-control-plane
+    app.kubernetes.io/part-of: open-inspect
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: open-inspect-control-plane
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: open-inspect-control-plane
+        app.kubernetes.io/part-of: open-inspect
+    spec:
+      serviceAccountName: open-inspect-control-plane
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # SHUTDOWN_TIMEOUT_MS plus the 5 s the host keeps before forcing its exit, plus margin.
+      terminationGracePeriodSeconds: 40
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000 # node, in node:24-slim
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: control-plane
+          image: open-inspect-control-plane:local
+          envFrom:
+            - secretRef:
+                name: open-inspect-control-plane-env
+          env:
+            - name: HOST
+              value: 0.0.0.0
+            - name: PORT
+              value: "8787"
+            - name: DATA_DIR
+              value: /data
+            - name: SHUTDOWN_TIMEOUT_MS
+              value: "30000"
+            - name: SANDBOX_PROVIDER
+              value: kubernetes
+            - name: KUBERNETES_NAMESPACE
+              value: open-inspect-sandboxes
+            # Node's fetch trusts the cluster CA for the API server.
+            - name: NODE_EXTRA_CA_CERTS
+              value: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          ports:
+            - name: http
+              containerPort: 8787
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 30
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+            - name: kube-api-access
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
+        - name: sandbox-gateway
+          image: caddy:2.11.7-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
+          args: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+          env:
+            - name: XDG_DATA_HOME
+              value: /tmp/caddy-data
+            - name: XDG_CONFIG_HOME
+              value: /tmp/caddy-config
+          ports:
+            - name: sandbox-tls
+              containerPort: 8443
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+              # The image's caddy binary carries this file capability; exec
+              # fails without it in the bounding set. Port 8443 needs none.
+              add: ["NET_BIND_SERVICE"]
+          volumeMounts:
+            - name: gateway-config
+              mountPath: /etc/caddy
+              readOnly: true
+            - name: gateway-tls
+              mountPath: /etc/sandbox-gateway-tls
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: open-inspect-control-plane-data
+        - name: tmp
+          emptyDir:
+            sizeLimit: 1Gi
+        - name: gateway-config
+          configMap:
+            name: open-inspect-sandbox-gateway
+        - name: gateway-tls
+          secret:
+            secretName: open-inspect-sandbox-gateway-tls
+        # The ServiceAccount token the provider uses, short-lived; the host
+        # re-reads it as the kubelet rotates it.
+        - name: kube-api-access
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3600
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
+              - downwardAPI:
+                  items:
+                    - path: namespace
+                      fieldRef:
+                        fieldPath: metadata.namespace
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: open-inspect-control-plane
+  namespace: open-inspect
+  labels:
+    app.kubernetes.io/name: open-inspect-control-plane
+    app.kubernetes.io/part-of: open-inspect
+spec:
+  selector:
+    app.kubernetes.io/name: open-inspect-control-plane
+  ports:
+    - name: http
+      port: 8787
+      targetPort: http
+    - name: sandbox-tls
+      port: 8443
+      targetPort: sandbox-tls

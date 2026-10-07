@@ -1,0 +1,20 @@
+# The sandbox namespace: everything the Kubernetes provider expects to find
+# there. Namespaces are set on each object rather than by a namespace
+# transformer, because the RoleBindings name subjects in the control plane's
+# namespace and the admission policy is cluster-scoped.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - rbac.yaml
+  - network-policies.yaml
+  - egress-proxy.yaml
+  - admission-policy.yaml
+  - quota.yaml
+configMapGenerator:
+  - name: egress-proxy-config
+    namespace: open-inspect-sandboxes
+    files:
+      - squid.conf
+      - allowlist.txt
+      - blocked-destinations.txt

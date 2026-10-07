@@ -124,6 +124,12 @@ jobs:
       - name: Test AWS deploy rollback
         run: npm run test:deploy-aws
 
+      - name: Test Kubernetes sandbox GC
+        run: npm run test:kubernetes-gc
+
+      - name: Test Kubernetes egress proxy config
+        run: npm run test:kubernetes-egress-proxy
+
       - name: Test Owner bootstrap CLI
         run: npm run test:rbac-bootstrap-owner
 

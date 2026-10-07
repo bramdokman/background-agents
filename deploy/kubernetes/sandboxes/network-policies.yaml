@@ -1,0 +1,95 @@
+# Default deny, then two narrow openings. The provider refuses to start a
+# sandbox unless the namespace has a pure default-deny egress policy and no
+# policy selecting sandbox pods allows an ipBlock (KUBERNETES_REQUIRE_NETWORK_POLICY).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: open-inspect-sandboxes
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress", "Egress"]
+---
+# Sandboxes reach exactly two things, both in-cluster: the egress proxy, and
+# the control plane's sandbox gateway (KUBERNETES_SANDBOX_CONTROL_PLANE_URL).
+# No DNS: with an IP-literal KUBERNETES_EGRESS_PROXY_URL the pods have no
+# resolver, so names are resolved only by the proxy, through public DNS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandbox-egress
+  namespace: open-inspect-sandboxes
+spec:
+  podSelector:
+    matchLabels:
+      openinspect.dev/role: sandbox
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: egress-proxy
+      ports:
+        - protocol: TCP
+          port: 3128
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: open-inspect
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: open-inspect-control-plane
+      ports:
+        - protocol: TCP
+          port: 8443
+---
+# The proxy: in from sandboxes only; out to public DNS resolvers and to
+# public addresses on 443. Every private, link-local, CGNAT (tailnet) and
+# multicast range is excluded; add the cluster's own node addresses in an
+# overlay (a node's public IP reaches its kubelet and API server).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: egress-proxy
+  namespace: open-inspect-sandboxes
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: egress-proxy
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              openinspect.dev/role: sandbox
+      ports:
+        - protocol: TCP
+          port: 3128
+  egress:
+    # RESOLVERS: the same addresses as dns_nameservers in squid.conf.
+    - to:
+        - ipBlock:
+            cidr: 1.1.1.1/32
+        - ipBlock:
+            cidr: 9.9.9.9/32
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 0.0.0.0/8
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 224.0.0.0/4
+              - 240.0.0.0/4
+      ports:
+        - protocol: TCP
+          port: 443

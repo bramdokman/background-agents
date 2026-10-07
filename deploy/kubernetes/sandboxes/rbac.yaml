@@ -1,0 +1,78 @@
+# What the control plane may do in the sandbox namespace, and nothing more.
+# No ClusterRole, no wildcard, no pods/exec, attach, portforward or
+# ephemeralcontainers, no ServiceAccounts or RBAC objects.
+#
+# Secrets are create/delete only. That keeps the control plane from reading
+# Secrets back through the API; it is not a confidentiality boundary, since
+# anything allowed to create pods here could mount a Secret. The
+# ValidatingAdmissionPolicy (admission-policy.yaml) is what restricts the
+# pods the control plane can create.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: open-inspect-control-plane
+  namespace: open-inspect-sandboxes
+  labels:
+    app.kubernetes.io/part-of: open-inspect
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["create", "get", "list", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: open-inspect-control-plane
+  namespace: open-inspect-sandboxes
+  labels:
+    app.kubernetes.io/part-of: open-inspect
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: open-inspect-control-plane
+subjects:
+  - kind: ServiceAccount
+    name: open-inspect-control-plane
+    namespace: open-inspect
+---
+# The garbage collector (control-plane/gc-cronjob.yaml) runs in the control
+# plane's namespace, never next to untrusted code, and reaches in with this.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: open-inspect-sandbox-gc
+  namespace: open-inspect-sandboxes
+  labels:
+    app.kubernetes.io/part-of: open-inspect
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["list", "get", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: open-inspect-sandbox-gc
+  namespace: open-inspect-sandboxes
+  labels:
+    app.kubernetes.io/part-of: open-inspect
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: open-inspect-sandbox-gc
+subjects:
+  - kind: ServiceAccount
+    name: open-inspect-sandbox-gc
+    namespace: open-inspect

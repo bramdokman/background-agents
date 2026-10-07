@@ -19,6 +19,8 @@
     "test:lint-sandbox-boundaries": "node --test scripts/lint-sandbox-boundaries.test.mjs",
     "test:lint-sql-portability": "node --test scripts/lint-sql-portability.test.mjs",
     "test:deploy-aws": "node --test scripts/deploy-aws.test.mjs",
+    "test:kubernetes-gc": "node --test scripts/kubernetes-gc.test.mjs",
+    "test:kubernetes-egress-proxy": "node --test scripts/kubernetes-egress-proxy.test.mjs",
     "test:rbac-bootstrap-owner": "node --experimental-transform-types --test scripts/bootstrap-workspace-owner.test.ts",
     "test:user-merge-cli": "node --experimental-transform-types --test scripts/merge-split-users.test.ts",
     "test:cf-logs-cli": "node --test scripts/cf-logs.test.ts",
@@ -66,7 +68,7 @@
     "*.{js,jsx,json,md,yaml,yml,css}": [
       "prettier --write"
     ],
-    "packages/{daytona-infra,e2b-infra,modal-infra,sandbox-runtime,sandbox-images}/**/*.py": [
+    "packages/{daytona-infra,e2b-infra,kubernetes-infra,modal-infra,sandbox-runtime,sandbox-images}/**/*.py": [
       "ruff check --fix",
       "ruff format"
     ]

@@ -1,0 +1,33 @@
+# The control plane's namespace. Ingress: a web app deployed in this
+# namespace with the label app.kubernetes.io/name=open-inspect-web (not part
+# of these manifests), and sandboxes (the TLS gateway only). Traffic from the
+# node itself (an ingress controller in host networking) is not subject to
+# policy on most CNIs.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: control-plane-ingress
+  namespace: open-inspect
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: open-inspect-control-plane
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: open-inspect-web
+      ports:
+        - protocol: TCP
+          port: 8787
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: open-inspect-sandboxes
+          podSelector:
+            matchLabels:
+              openinspect.dev/role: sandbox
+      ports:
+        - protocol: TCP
+          port: 8443
