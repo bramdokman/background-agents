@@ -169,6 +169,7 @@ Not every provider restores from a saved filesystem:
 | Modal, modal-vm, Vercel | A saved filesystem snapshot can be restored into a new sandbox after shutdown. Modal can also snapshot after a turn; modal-vm and Vercel skip those captures.                                  |
 | OpenComputer            | A confirmed shutdown checkpoints state and retires the source; the next prompt restores into a new sandbox. Without a saved shutdown receipt, a retained hibernated sandbox can wake in place. |
 | Daytona, E2B            | The retained sandbox resumes in place after being stopped (Daytona) or paused (E2B).                                                                                                           |
+| Kubernetes              | The pod is deleted on stop and the workspace volume kept; the next prompt starts a new pod on it.                                                                                              |
 
 The status labels are the same on both models. See [Sandbox providers](/configure/sandbox-providers).
 

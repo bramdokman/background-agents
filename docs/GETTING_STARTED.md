@@ -906,6 +906,19 @@ For the full runtime, lifecycle, and configuration model, see
 > plan to use — `ANTHROPIC_API_KEY` for Claude — as a **global secret** in Settings > Secrets after
 > deploying. See [Secrets Management](SECRETS.md) for details.
 
+### Kubernetes
+
+> Only for `SANDBOX_PROVIDER=kubernetes`, with the control plane running as the Node host
+> ([CONTROL_PLANE_CONTAINER.md](CONTROL_PLANE_CONTAINER.md)) in the same cluster. Terraform does not
+> deploy it.
+
+Sandboxes run as pods under gVisor or Kata in a namespace of their own, with default-deny egress, an
+allowlisting proxy and an admission policy. Apply `deploy/kubernetes/sandboxes` and
+`deploy/kubernetes/control-plane`, build the image with
+`npm run sandbox:images -- build --provider kubernetes`, and see
+[Kubernetes Sandbox Provider](KUBERNETES_SANDBOX_PROVIDER.md) for the settings and the security
+model.
+
 ---
 
 ## Enable Google Login (Optional)

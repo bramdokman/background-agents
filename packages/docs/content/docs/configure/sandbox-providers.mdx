@@ -4,39 +4,41 @@ description: Compare sandbox backends and see which behaviors differ from a user
 audience: admin
 owner: platform
 status: published
-lastReviewed: "2026-09-28"
+lastReviewed: "2026-10-07"
 relatedCode:
   - docs/HOW_IT_WORKS.md
   - docs/IMAGE_PREBUILD.md
   - docs/E2B_SANDBOX_PROVIDER.md
   - docs/VERCEL_SANDBOX_PROVIDER.md
   - docs/OPENCOMPUTER_PROVIDER.md
+  - docs/KUBERNETES_SANDBOX_PROVIDER.md
   - packages/shared/src/types/integrations.ts
   - packages/web/src/lib/sandbox-provider.ts
   - packages/web/src/components/settings/sandbox-settings.tsx
   - packages/control-plane/src/sandbox/providers/vercel/provider.ts
+  - packages/control-plane/src/sandbox/providers/kubernetes-provider.ts
 ---
 
 This page compares the sandbox providers a deployment can run on: the operator picks one (`sandbox_provider` in the deployment configuration) for every session, and each runs the same [sandbox runtime](/reference/sandbox-environment) but differs in how sandboxes start, how saved state is kept, and which [sandbox settings](/configure/sandbox-settings) it honors.
 
 ## Which provider am I on?
 
-Users cannot switch providers from the app. Settings › Sandbox names the provider when it cannot honor a field, for example "Per-session CPU and memory overrides are unavailable for daytona; resources are configured by the deployment." A timeout-only note ("Per-session timeout overrides are unavailable for ...") appears on Daytona as well. No note means Modal, modal-vm, or Vercel Sandboxes; ask your operator which one.
+Users cannot switch providers from the app. Settings › Sandbox names the provider when it cannot honor a field, for example "Per-session CPU and memory overrides are unavailable for daytona; resources are configured by the deployment." A timeout-only note ("Per-session timeout overrides are unavailable for ...") appears on Daytona as well. No note means Modal, modal-vm, Vercel Sandboxes, or Kubernetes; ask your operator which one. On Kubernetes the Web Terminal, Service Ports, and Tunnel Ports settings are replaced by a note that those features are unavailable.
 
 ## Comparison
 
-|                          | Modal                                     | modal-vm                                      | Daytona                                                                          | Vercel Sandboxes                                              | OpenComputer                                                                        | E2B                                                                                   |
-| ------------------------ | ----------------------------------------- | --------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| Startup model            | Fresh sandbox from the base runtime image | Fresh Docker-capable Modal VM sandbox         | Persistent sandbox created from a base snapshot                                  | Fresh sandbox from a base-runtime snapshot                    | Persistent sandbox created from a managed template                                  | Fresh sandbox from a managed template                                                 |
-| Saved-state model        | Filesystem snapshot restore               | Filesystem snapshot at shutdown, then restore | Persistent sandbox: stopped on inactivity or stale heartbeat, then started again | Filesystem snapshot at shutdown, then restore                 | Confirmed shutdown checkpoints and restores; retained-object wake is also supported | Persistent sandbox: paused on inactivity, resumed on the next prompt                  |
-| Prebuilt images          | Yes (Modal image)                         | Yes (Modal VM image)                          | Yes, once the operator opens admission (snapshot)                                | Yes (snapshot)                                                | Yes (checkpoint)                                                                    | Yes (snapshot)                                                                        |
-| CPU and memory settings  | Yes                                       | Yes                                           | No                                                                               | Yes, mapped to vCPUs                                          | No                                                                                  | No                                                                                    |
-| Sandbox timeout setting  | Yes                                       | Yes                                           | No                                                                               | Yes                                                           | Yes                                                                                 | Yes                                                                                   |
-| Default sandbox lifetime | 2 hours; configurable                     | 2 hours; configurable                         | Persistent sandbox; the timeout setting is not honored                           | 45-minute sandbox lifetime; image builds capped at 35 minutes | OpenComputer's own default; configurable                                            | Operator-set TTL (default 2 hours; about 1 hour on the Hobby tier); auto-pause at TTL |
+|                          | Modal                                     | modal-vm                                      | Daytona                                                                          | Vercel Sandboxes                                              | OpenComputer                                                                        | E2B                                                                                   | Kubernetes                                                                                |
+| ------------------------ | ----------------------------------------- | --------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Startup model            | Fresh sandbox from the base runtime image | Fresh Docker-capable Modal VM sandbox         | Persistent sandbox created from a base snapshot                                  | Fresh sandbox from a base-runtime snapshot                    | Persistent sandbox created from a managed template                                  | Fresh sandbox from a managed template                                                 | Pod on a new workspace volume from the sandbox image                                      |
+| Saved-state model        | Filesystem snapshot restore               | Filesystem snapshot at shutdown, then restore | Persistent sandbox: stopped on inactivity or stale heartbeat, then started again | Filesystem snapshot at shutdown, then restore                 | Confirmed shutdown checkpoints and restores; retained-object wake is also supported | Persistent sandbox: paused on inactivity, resumed on the next prompt                  | Persistent volume: the pod is deleted on inactivity, a new pod resumes on the same volume |
+| Prebuilt images          | Yes (Modal image)                         | Yes (Modal VM image)                          | Yes, once the operator opens admission (snapshot)                                | Yes (snapshot)                                                | Yes (checkpoint)                                                                    | Yes (snapshot)                                                                        | No (not yet supported)                                                                    |
+| CPU and memory settings  | Yes                                       | Yes                                           | No                                                                               | Yes, mapped to vCPUs                                          | No                                                                                  | No                                                                                    | Yes, as pod requests and limits                                                           |
+| Sandbox timeout setting  | Yes                                       | Yes                                           | No                                                                               | Yes                                                           | Yes                                                                                 | Yes                                                                                   | Yes                                                                                       |
+| Default sandbox lifetime | 2 hours; configurable                     | 2 hours; configurable                         | Persistent sandbox; the timeout setting is not honored                           | 45-minute sandbox lifetime; image builds capped at 35 minutes | OpenComputer's own default; configurable                                            | Operator-set TTL (default 2 hours; about 1 hour on the Hobby tier); auto-pause at TTL | 2 hours; configurable                                                                     |
 
 "Yes" for CPU and memory means the `cpuCores` and `memoryMib` fields under Settings › Sandbox take effect. On providers marked "No", those fields are dropped from the session's effective settings. The same applies to `sandboxTimeoutMs` where the timeout column says "No". The settings page hides the fields the current provider cannot honor.
 
-Saved state matters for follow-up prompts: after confirmed shutdown, Modal, modal-vm, Vercel, and OpenComputer can restore a saved snapshot or checkpoint into a new sandbox. Daytona and E2B resume the retained sandbox in place. OpenComputer can also wake a retained sandbox when no confirmed-shutdown receipt controls recovery.
+Saved state matters for follow-up prompts: after confirmed shutdown, Modal, modal-vm, Vercel, and OpenComputer can restore a saved snapshot or checkpoint into a new sandbox. Daytona and E2B resume the retained sandbox in place, and Kubernetes starts a new pod on the retained workspace volume. OpenComputer can also wake a retained sandbox when no confirmed-shutdown receipt controls recovery.
 
 The two saved-state models side by side:
 
@@ -53,10 +55,10 @@ flowchart TB
         s4 -- "next prompt" --> s5["New sandbox<br/>restores saved state"]
         s5 --> s2
     end
-    subgraph persist["Daytona, E2B"]
+    subgraph persist["Daytona, E2B, Kubernetes"]
         direction TB
         p1["Persistent<br/>sandbox created"] --> p2["Prompt runs"]
-        p2 --> p3["Stopped (Daytona)<br/>or paused (E2B)<br/>on inactivity"]
+        p2 --> p3["Stopped (Daytona, Kubernetes)<br/>or paused (E2B)<br/>on inactivity"]
         p3 -- "next prompt" --> p4["The same sandbox<br/>resumes with its<br/>workspace intact"]
         p4 --> p2
     end
@@ -104,6 +106,14 @@ OpenComputer can also wake an existing hibernated sandbox if no saved shutdown r
 - The sandbox timeout setting applies; CPU and memory settings do not. Template size is set by the operator.
 - E2B sandboxes take every model API key from Settings › Secrets; there is no deployment-wide key.
 
+## Kubernetes
+
+- Each session gets a workspace volume and runs in a pod on a cluster the operator runs, under a sandboxing runtime such as gVisor, with outbound traffic limited to an allowlisting proxy.
+- On inactivity the pod is deleted and the volume kept; the next prompt starts a new pod on the same volume, so the working tree, the agent's conversation and installed project dependencies carry over. System packages do not: they belong in the sandbox image.
+- CPU and memory settings become pod requests and limits, and the sandbox timeout setting applies.
+- Prebuilt images are not supported yet, and neither are code-server, the web terminal, VNC, or tunnel ports.
+- Sandboxes reach only the hosts on the operator's allowlist. A tool that needs another host fails to connect; ask the operator to add it.
+
 ## Provider setup
 
 Provider selection and credentials are operator tasks documented in the repository:
@@ -112,6 +122,7 @@ Provider selection and credentials are operator tasks documented in the reposito
 - [Vercel Sandbox provider](https://github.com/ColeMurray/background-agents/blob/main/docs/VERCEL_SANDBOX_PROVIDER.md)
 - [OpenComputer provider](https://github.com/ColeMurray/background-agents/blob/main/docs/OPENCOMPUTER_PROVIDER.md)
 - [E2B sandbox provider](https://github.com/ColeMurray/background-agents/blob/main/docs/E2B_SANDBOX_PROVIDER.md)
+- [Kubernetes sandbox provider](https://github.com/ColeMurray/background-agents/blob/main/docs/KUBERNETES_SANDBOX_PROVIDER.md)
 - [Daytona prebuilds and admission](https://github.com/ColeMurray/background-agents/blob/main/docs/IMAGE_PREBUILD.md#daytona-prebuilds)
 
 When switching providers, keep the previous provider's credentials configured until its pending image cleanup has drained; cleanup runs against the provider each build was recorded on.
@@ -124,6 +135,7 @@ When switching providers, keep the previous provider's credentials configured un
 | Settings › Images shows "Prebuilds are paused for this deployment"         | Daytona with `daytona_prebuilds_enabled` off (the default)       | Toggles still record intent. The operator opens admission; see the Daytona link under Provider setup. |
 | A Vercel session fails to start after raising CPU or memory                | Requests above 8 vCPUs or 16 GB are rejected by Vercel           | Lower `cpuCores` or `memoryMib` under Settings › Sandbox.                                             |
 | An image build on Vercel times out before the configured build timeout     | Vercel caps image-build execution at 35 minutes                  | Shorten `setup.sh`; environment builds run one setup script per repository.                           |
+| A Kubernetes session cannot reach a package registry or API                | The host is not on the deployment's egress allowlist             | Ask the operator to add the host to the allowlist.                                                    |
 
 ## Next steps
 

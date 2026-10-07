@@ -224,11 +224,15 @@ Open-Inspect supports these sandbox backends:
 - **OpenComputer**: template-based sandboxes with checkpoint-backed prebuilt-image builds via the
   OpenComputer REST API
 - **E2B**: template-based sandboxes with persistent pause/resume via direct E2B REST API calls
+- **Kubernetes**: pods on a cluster you operate, under a sandboxing runtime (gVisor or Kata), with a
+  persistent workspace volume per sandbox; see
+  [KUBERNETES_SANDBOX_PROVIDER.md](./KUBERNETES_SANDBOX_PROVIDER.md)
 
 Prebuilt-image builds are supported on Modal, Vercel, and OpenComputer. Saved filesystem state can
-be restored on those same providers for session resumes; Daytona and E2B use persistent sandboxes
-instead. For Daytona and E2B, the control plane stops or pauses the sandbox on inactivity or stale
-heartbeat, then resumes that same sandbox later.
+be restored on those same providers for session resumes; Daytona, E2B and Kubernetes use persistent
+sandboxes instead. For Daytona and E2B, the control plane stops or pauses the sandbox on inactivity
+or stale heartbeat, then resumes that same sandbox later; for Kubernetes it deletes the pod, keeps
+the workspace volume, and resumes on a new pod.
 
 ### Clients
 
