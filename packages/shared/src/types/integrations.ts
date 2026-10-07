@@ -264,11 +264,21 @@ export const DEFAULT_MODAL_VM_CPU_LIMIT_CORES = 2;
 export const DEFAULT_MODAL_VM_MEMORY_LIMIT_MIB = 4096;
 
 /**
+ * Kubernetes resource defaults: the pod's requests and limits when a session
+ * sets none. The control plane's Kubernetes provider applies these.
+ */
+export const DEFAULT_KUBERNETES_CPU_CORES = 1;
+export const DEFAULT_KUBERNETES_MEMORY_MIB = 2048;
+export const DEFAULT_KUBERNETES_CPU_LIMIT_CORES = 4;
+export const DEFAULT_KUBERNETES_MEMORY_LIMIT_MIB = 8192;
+
+/**
  * Sandbox environment settings. Provider-agnostic: describes what the user
  * wants, not how it's done. Request fields (`cpuCores`, `memoryMib`) are
  * advisory and provider-dependent — Modal maps them directly, Vercel maps
- * them to vCPUs, and providers without resource reservations ignore them.
- * Limits are caps supported only by Modal backends. The provider enforces its
+ * them to vCPUs, Kubernetes maps them to pod requests, and providers without
+ * resource reservations ignore them. Limits are caps supported by Modal
+ * backends and Kubernetes (pod limits). The provider enforces its
  * own real limits. When unset, the provider's own default applies. At repo or
  * environment scope, `null` explicitly uses the provider default instead of
  * inheriting a resource default.
@@ -292,9 +302,9 @@ export const sandboxSettingsSchema = z.strictObject({
   cpuCores: z.number().nullable().optional(),
   /** Memory to reserve for the sandbox, in MiB. */
   memoryMib: z.number().nullable().optional(),
-  /** CPU cap for Modal backends; null resets to the provider default. */
+  /** CPU cap for Modal and Kubernetes; null resets to the provider default. */
   cpuLimitCores: z.number().nullable().optional(),
-  /** Memory cap in MiB for Modal backends; null resets to the provider default. */
+  /** Memory cap in MiB for Modal and Kubernetes; null resets to the provider default. */
   memoryLimitMib: z.number().nullable().optional(),
   /** Requested sandbox session lifetime, in milliseconds. */
   sandboxTimeoutMs: z.number().optional(),
@@ -316,6 +326,7 @@ export const SANDBOX_PROVIDER_NAMES = [
   "vercel",
   "opencomputer",
   "e2b",
+  "kubernetes",
 ] as const;
 
 export type SandboxProviderName = (typeof SANDBOX_PROVIDER_NAMES)[number];
@@ -332,6 +343,7 @@ const SANDBOX_SETTING_CAPABILITIES = {
   vercel: DEFAULT_SANDBOX_SETTING_CAPABILITIES,
   opencomputer: { resources: false, resourceLimits: false, timeout: true },
   e2b: { resources: false, resourceLimits: false, timeout: true },
+  kubernetes: { resources: true, resourceLimits: true, timeout: true },
 } satisfies Record<
   SandboxProviderName,
   { resources: boolean; resourceLimits: boolean; timeout: boolean }
@@ -358,7 +370,7 @@ export function supportsConfigurableSandboxResources(provider: string): boolean 
   return sandboxSettingCapabilities(provider).resources;
 }
 
-/** Only Modal backends honor per-session resource caps. */
+/** Whether the provider honors per-session resource caps (Modal backends and Kubernetes). */
 export function supportsConfigurableSandboxResourceLimits(provider: string): boolean {
   return sandboxSettingCapabilities(provider).resourceLimits;
 }
@@ -381,12 +393,9 @@ export function validateSandboxResourceLimits(
   if (!supportsConfigurableSandboxResourceLimits(provider)) {
     return undefined;
   }
-  const cpuCores =
-    settings.cpuCores ??
-    (provider === "modal-vm" ? DEFAULT_MODAL_VM_CPU_CORES : DEFAULT_MODAL_CPU_CORES);
-  const memoryMib =
-    settings.memoryMib ??
-    (provider === "modal-vm" ? DEFAULT_MODAL_VM_MEMORY_MIB : DEFAULT_MODAL_MEMORY_MIB);
+  const defaults = defaultSandboxResourceRequests(provider);
+  const cpuCores = settings.cpuCores ?? defaults.cpuCores;
+  const memoryMib = settings.memoryMib ?? defaults.memoryMib;
   if (settings.cpuLimitCores != null && settings.cpuLimitCores < cpuCores) {
     return "cpuLimitCores must be greater than or equal to cpuCores";
   }
@@ -394,6 +403,21 @@ export function validateSandboxResourceLimits(
     return "memoryLimitMib must be greater than or equal to memoryMib";
   }
   return undefined;
+}
+
+/** The requests a provider that honors caps applies when a session sets none. */
+function defaultSandboxResourceRequests(provider: SandboxProviderName): {
+  cpuCores: number;
+  memoryMib: number;
+} {
+  switch (provider) {
+    case "modal-vm":
+      return { cpuCores: DEFAULT_MODAL_VM_CPU_CORES, memoryMib: DEFAULT_MODAL_VM_MEMORY_MIB };
+    case "kubernetes":
+      return { cpuCores: DEFAULT_KUBERNETES_CPU_CORES, memoryMib: DEFAULT_KUBERNETES_MEMORY_MIB };
+    default:
+      return { cpuCores: DEFAULT_MODAL_CPU_CORES, memoryMib: DEFAULT_MODAL_MEMORY_MIB };
+  }
 }
 
 export type ProviderSpecificSandboxSetting = keyof SandboxResources | "sandboxTimeoutMs";

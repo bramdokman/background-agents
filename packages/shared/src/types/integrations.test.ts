@@ -1,6 +1,8 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   DEFAULT_BUILD_TIMEOUT_SECONDS,
+  DEFAULT_KUBERNETES_CPU_CORES,
+  DEFAULT_KUBERNETES_MEMORY_MIB,
   DEFAULT_MODAL_CPU_CORES,
   DEFAULT_MODAL_MEMORY_MIB,
   DEFAULT_MODAL_VM_CPU_CORES,
@@ -103,29 +105,32 @@ describe("sandbox resource limit validation", () => {
     >();
   });
 
-  it.each(["modal", "modal-vm"] as const)("compares explicit requests for %s", (provider) => {
-    expect(validateSandboxResourceLimits({ cpuCores: 4, cpuLimitCores: 2 }, provider)).toContain(
-      "cpuLimitCores"
-    );
-    expect(
-      validateSandboxResourceLimits({ memoryMib: 8192, memoryLimitMib: 4096 }, provider)
-    ).toContain("memoryLimitMib");
-    expect(
-      validateSandboxResourceLimits(
-        { cpuCores: 4, cpuLimitCores: 4, memoryMib: 8192, memoryLimitMib: 8192 },
-        provider
-      )
-    ).toBeUndefined();
-    expect(
-      validateSandboxResourceLimits({ cpuCores: 4, memoryMib: 8192 }, provider)
-    ).toBeUndefined();
-    expect(
-      validateSandboxResourceLimits(
-        { cpuCores: 4, memoryMib: 8192, cpuLimitCores: null, memoryLimitMib: null },
-        provider
-      )
-    ).toBeUndefined();
-  });
+  it.each(["modal", "modal-vm", "kubernetes"] as const)(
+    "compares explicit requests for %s",
+    (provider) => {
+      expect(validateSandboxResourceLimits({ cpuCores: 4, cpuLimitCores: 2 }, provider)).toContain(
+        "cpuLimitCores"
+      );
+      expect(
+        validateSandboxResourceLimits({ memoryMib: 8192, memoryLimitMib: 4096 }, provider)
+      ).toContain("memoryLimitMib");
+      expect(
+        validateSandboxResourceLimits(
+          { cpuCores: 4, cpuLimitCores: 4, memoryMib: 8192, memoryLimitMib: 8192 },
+          provider
+        )
+      ).toBeUndefined();
+      expect(
+        validateSandboxResourceLimits({ cpuCores: 4, memoryMib: 8192 }, provider)
+      ).toBeUndefined();
+      expect(
+        validateSandboxResourceLimits(
+          { cpuCores: 4, memoryMib: 8192, cpuLimitCores: null, memoryLimitMib: null },
+          provider
+        )
+      ).toBeUndefined();
+    }
+  );
 
   it.each([
     { provider: "modal", cpuCores: DEFAULT_MODAL_CPU_CORES, memoryMib: DEFAULT_MODAL_MEMORY_MIB },
@@ -133,6 +138,11 @@ describe("sandbox resource limit validation", () => {
       provider: "modal-vm",
       cpuCores: DEFAULT_MODAL_VM_CPU_CORES,
       memoryMib: DEFAULT_MODAL_VM_MEMORY_MIB,
+    },
+    {
+      provider: "kubernetes",
+      cpuCores: DEFAULT_KUBERNETES_CPU_CORES,
+      memoryMib: DEFAULT_KUBERNETES_MEMORY_MIB,
     },
   ] as const)(
     "uses request defaults for absent and null $provider requests",
@@ -186,6 +196,7 @@ describe("sandbox provider settings capabilities", () => {
     { provider: "vercel", resources: true, resourceLimits: false, timeout: true },
     { provider: "opencomputer", resources: false, resourceLimits: false, timeout: true },
     { provider: "e2b", resources: false, resourceLimits: false, timeout: true },
+    { provider: "kubernetes", resources: true, resourceLimits: true, timeout: true },
   ])("resolves canonical capabilities for $provider", ({ provider, ...capabilities }) => {
     expect(sandboxSettingCapabilities(provider)).toEqual(capabilities);
     expect(sandboxSettingCapabilities(` ${provider.toUpperCase()} `)).toEqual(capabilities);
