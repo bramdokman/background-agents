@@ -168,6 +168,8 @@ export const NODE_HOST_VARIABLE_NAMES = [
   "DATA_DIR",
   "MIGRATIONS_DIR",
   "SHUTDOWN_TIMEOUT_MS",
+  "AUDIT_EXPORT_STDOUT",
+  "AUDIT_EXPORT_FILE",
 ] as const;
 
 /** What the process itself needs: where to listen and where its files live. */
@@ -182,6 +184,10 @@ export interface NodeHostSettings {
   migrationsDir: string;
   /** `SHUTDOWN_TIMEOUT_MS`: how long a drain waits for work before the host is forced down. */
   shutdownTimeoutMs: number;
+  /** `AUDIT_EXPORT_STDOUT`: write every committed audit event to stdout as a JSON line. */
+  auditExportStdout: boolean;
+  /** `AUDIT_EXPORT_FILE`: append every committed audit event to this file, one JSON line each. */
+  auditExportFile: string | undefined;
 }
 
 const DEFAULT_HOST = "0.0.0.0";
@@ -215,11 +221,28 @@ export function readNodeHostSettings(source: ConfigSource): NodeHostSettings {
       variables.SHUTDOWN_TIMEOUT_MS,
       DEFAULT_SHUTDOWN_TIMEOUT_MS
     ),
+    auditExportStdout: boolean("AUDIT_EXPORT_STDOUT", variables.AUDIT_EXPORT_STDOUT, false),
+    auditExportFile: optionalPath(variables.AUDIT_EXPORT_FILE),
   };
 }
 
 function present(value: string | undefined): string | undefined {
   return value === undefined || value === "" ? undefined : value;
+}
+
+function optionalPath(value: string | undefined): string | undefined {
+  const raw = present(value);
+  return raw === undefined ? undefined : resolve(raw);
+}
+
+/** Exactly "true" or "false": a misspelt opt-in must not silently stay off. */
+function boolean(name: string, value: string | undefined, fallback: boolean): boolean {
+  const raw = present(value);
+  if (raw === undefined) return fallback;
+  if (raw !== "true" && raw !== "false") {
+    throw new Error(`${name} must be "true" or "false", got ${raw}`);
+  }
+  return raw === "true";
 }
 
 function integer(name: string, value: string | undefined, fallback: number): number {
