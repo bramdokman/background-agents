@@ -109,6 +109,7 @@ export interface EnvConfig {
   KUBERNETES_EGRESS_PROBE_HOST?: string; // IP a pod must fail to reach directly before its sandbox starts; defaults to DEFAULT_EGRESS_PROBE_HOST
   KUBERNETES_SANDBOX_CONTROL_PLANE_URL?: string; // In-cluster https URL sandboxes use instead of WORKER_URL
   KUBERNETES_SANDBOX_CA_CERT?: string; // PEM CA sandboxes trust in addition to the system store
+  KUBERNETES_SANDBOX_ENV?: string; // JSON object of deployment-wide sandbox env (model keys); user secrets win
 
   // Sandbox lifecycle configuration
   SANDBOX_INACTIVITY_TIMEOUT_MS?: string; // Inactivity timeout in ms (default: 600000 = 10 min)
