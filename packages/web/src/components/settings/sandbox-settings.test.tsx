@@ -836,6 +836,21 @@ describe("SandboxSettingsPage — resource reservations editor", () => {
     }
   });
 
+  it("shows the pod defaults and no access settings for kubernetes", () => {
+    vi.stubEnv("NEXT_PUBLIC_SANDBOX_PROVIDER", "kubernetes");
+    renderWithSWR(globalSettings([]));
+    expect(screen.getByLabelText("CPU limit (cores)")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Pod defaults: requests of 1 CPU cores and 2048 MiB; limits of at least 4/)
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText("Web Terminal")).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Service Ports" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Tunnel Ports" })).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/no web terminal, code-server, VNC or tunnel ports/)
+    ).toBeInTheDocument();
+  });
+
   it.each(["vercel", "daytona", "opencomputer", "e2b"])("hides caps for %s", (provider) => {
     vi.stubEnv("NEXT_PUBLIC_SANDBOX_PROVIDER", provider);
     renderWithSWR(globalSettings([]));

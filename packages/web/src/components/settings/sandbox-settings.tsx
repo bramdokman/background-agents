@@ -11,6 +11,10 @@ import { browserApiFetch, type BrowserApiPath } from "@/lib/browser-api-fetch";
 import {
   DEFAULT_BUILD_TIMEOUT_SECONDS,
   DEFAULT_CODE_SERVER_PORT,
+  DEFAULT_KUBERNETES_CPU_CORES,
+  DEFAULT_KUBERNETES_CPU_LIMIT_CORES,
+  DEFAULT_KUBERNETES_MEMORY_LIMIT_MIB,
+  DEFAULT_KUBERNETES_MEMORY_MIB,
   DEFAULT_MODAL_VM_CPU_CORES,
   DEFAULT_MODAL_VM_MEMORY_MIB,
   DEFAULT_MODAL_VM_CPU_LIMIT_CORES,
@@ -148,6 +152,8 @@ export function SandboxSettingsEditor({
     resourceLimits: configurableLimits,
     timeout: configurableTimeout,
   } = sandboxSettingCapabilities(sandboxProvider);
+  // Kubernetes sandboxes get no ingress: no web terminal, service or tunnel ports.
+  const sandboxAccessSupported = sandboxProvider !== "kubernetes";
   const isGlobal = scope === "global";
   const canManage = hasPermission(
     scope === "global"
@@ -239,148 +245,159 @@ export function SandboxSettingsEditor({
 
   return (
     <fieldset disabled={!canManage} className="min-w-0 space-y-4">
-      {/* Web Terminal toggle */}
-      <div className="max-w-sm">
-        <div className="flex items-center justify-between">
-          <div>
-            <label
-              htmlFor="web-terminal-enabled"
-              className="block text-sm font-medium text-foreground"
-            >
-              Web Terminal
-            </label>
-            <p className="text-xs text-muted-foreground">
-              Enable a browser-based terminal in sandbox sessions.
+      {sandboxAccessSupported ? (
+        <>
+          {/* Web Terminal toggle */}
+          <div className="max-w-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                <label
+                  htmlFor="web-terminal-enabled"
+                  className="block text-sm font-medium text-foreground"
+                >
+                  Web Terminal
+                </label>
+                <p className="text-xs text-muted-foreground">
+                  Enable a browser-based terminal in sandbox sessions.
+                </p>
+              </div>
+              <button
+                id="web-terminal-enabled"
+                type="button"
+                role="switch"
+                aria-label="Web Terminal"
+                aria-checked={values.terminalEnabled}
+                onClick={() => updateField("terminalEnabled", !values.terminalEnabled)}
+                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                  values.terminalEnabled ? "bg-accent" : "bg-muted"
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform ${
+                    values.terminalEnabled ? "translate-x-4" : "translate-x-0"
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+
+          <fieldset className="min-w-0">
+            <legend className="block text-sm font-medium text-foreground mb-1.5">
+              Service Ports
+            </legend>
+            <p className="text-xs text-muted-foreground mb-2">
+              Ports code-server, noVNC, and the web terminal bind to. Leave blank for the defaults (
+              {DEFAULT_CODE_SERVER_PORT}, {DEFAULT_VNC_PORT}, and {DEFAULT_TERMINAL_PORT}). Change a
+              port to free the default for your own service on a tunnel. Code-server and VNC are
+              enabled in their own settings.
             </p>
-          </div>
-          <button
-            id="web-terminal-enabled"
-            type="button"
-            role="switch"
-            aria-label="Web Terminal"
-            aria-checked={values.terminalEnabled}
-            onClick={() => updateField("terminalEnabled", !values.terminalEnabled)}
-            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-              values.terminalEnabled ? "bg-accent" : "bg-muted"
-            }`}
-          >
-            <span
-              className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform ${
-                values.terminalEnabled ? "translate-x-4" : "translate-x-0"
-              }`}
-            />
-          </button>
-        </div>
-      </div>
-
-      <fieldset className="min-w-0">
-        <legend className="block text-sm font-medium text-foreground mb-1.5">Service Ports</legend>
-        <p className="text-xs text-muted-foreground mb-2">
-          Ports code-server, noVNC, and the web terminal bind to. Leave blank for the defaults (
-          {DEFAULT_CODE_SERVER_PORT}, {DEFAULT_VNC_PORT}, and {DEFAULT_TERMINAL_PORT}). Change a
-          port to free the default for your own service on a tunnel. Code-server and VNC are enabled
-          in their own settings.
-        </p>
-        <div className="grid gap-3 max-w-lg sm:grid-cols-3">
-          <div>
-            <label
-              htmlFor="code-server-port"
-              className="block text-xs font-medium text-muted-foreground mb-1"
-            >
-              Code server port
-            </label>
-            <Input
-              id="code-server-port"
-              type="text"
-              inputMode="numeric"
-              value={values.codeServerPort}
-              onChange={(e) => updateField("codeServerPort", e.target.value)}
-              placeholder={String(DEFAULT_CODE_SERVER_PORT)}
-            />
-          </div>
-          <div>
-            <label
-              htmlFor="vnc-port"
-              className="block text-xs font-medium text-muted-foreground mb-1"
-            >
-              VNC port
-            </label>
-            <Input
-              id="vnc-port"
-              type="text"
-              inputMode="numeric"
-              value={values.vncPort}
-              onChange={(e) => updateField("vncPort", e.target.value)}
-              placeholder={String(DEFAULT_VNC_PORT)}
-            />
-          </div>
-          <div>
-            <label
-              htmlFor="terminal-port"
-              className="block text-xs font-medium text-muted-foreground mb-1"
-            >
-              Terminal port
-            </label>
-            <Input
-              id="terminal-port"
-              type="text"
-              inputMode="numeric"
-              value={values.terminalPort}
-              onChange={(e) => updateField("terminalPort", e.target.value)}
-              placeholder={String(DEFAULT_TERMINAL_PORT)}
-            />
-          </div>
-        </div>
-      </fieldset>
-
-      <fieldset className="min-w-0">
-        <legend className="sr-only">Tunnel Ports</legend>
-        <div className="flex items-center justify-between max-w-sm mb-1.5">
-          <span aria-hidden="true" className="block text-sm font-medium text-foreground">
-            Tunnel Ports
-          </span>
-          <Button
-            type="button"
-            variant="subtle"
-            size="xs"
-            onClick={handleAddRow}
-            disabled={rows.length >= MAX_TUNNEL_PORTS}
-            className="text-accent hover:text-accent/80"
-          >
-            <PlusIcon className="w-3 h-3" />
-            Add port
-          </Button>
-        </div>
-        <p className="text-xs text-muted-foreground mb-2">
-          Expose additional ports from sandboxes via public tunnel URLs (e.g., dev server ports).
-        </p>
-        <div className="space-y-2 max-w-sm">
-          {rows.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-2">No tunnel ports configured.</p>
-          ) : (
-            rows.map((value, index) => (
-              <div key={index} className="flex items-center gap-2">
+            <div className="grid gap-3 max-w-lg sm:grid-cols-3">
+              <div>
+                <label
+                  htmlFor="code-server-port"
+                  className="block text-xs font-medium text-muted-foreground mb-1"
+                >
+                  Code server port
+                </label>
                 <Input
+                  id="code-server-port"
                   type="text"
                   inputMode="numeric"
-                  value={value}
-                  onChange={(e) => handleUpdateRow(index, e.target.value)}
-                  placeholder="e.g. 3000"
-                  className="flex-1"
+                  value={values.codeServerPort}
+                  onChange={(e) => updateField("codeServerPort", e.target.value)}
+                  placeholder={String(DEFAULT_CODE_SERVER_PORT)}
                 />
-                <Button
-                  type="button"
-                  variant="destructive"
-                  size="xs"
-                  onClick={() => handleRemoveRow(index)}
-                >
-                  Remove
-                </Button>
               </div>
-            ))
-          )}
-        </div>
-      </fieldset>
+              <div>
+                <label
+                  htmlFor="vnc-port"
+                  className="block text-xs font-medium text-muted-foreground mb-1"
+                >
+                  VNC port
+                </label>
+                <Input
+                  id="vnc-port"
+                  type="text"
+                  inputMode="numeric"
+                  value={values.vncPort}
+                  onChange={(e) => updateField("vncPort", e.target.value)}
+                  placeholder={String(DEFAULT_VNC_PORT)}
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="terminal-port"
+                  className="block text-xs font-medium text-muted-foreground mb-1"
+                >
+                  Terminal port
+                </label>
+                <Input
+                  id="terminal-port"
+                  type="text"
+                  inputMode="numeric"
+                  value={values.terminalPort}
+                  onChange={(e) => updateField("terminalPort", e.target.value)}
+                  placeholder={String(DEFAULT_TERMINAL_PORT)}
+                />
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset className="min-w-0">
+            <legend className="sr-only">Tunnel Ports</legend>
+            <div className="flex items-center justify-between max-w-sm mb-1.5">
+              <span aria-hidden="true" className="block text-sm font-medium text-foreground">
+                Tunnel Ports
+              </span>
+              <Button
+                type="button"
+                variant="subtle"
+                size="xs"
+                onClick={handleAddRow}
+                disabled={rows.length >= MAX_TUNNEL_PORTS}
+                className="text-accent hover:text-accent/80"
+              >
+                <PlusIcon className="w-3 h-3" />
+                Add port
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground mb-2">
+              Expose additional ports from sandboxes via public tunnel URLs (e.g., dev server
+              ports).
+            </p>
+            <div className="space-y-2 max-w-sm">
+              {rows.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-2">No tunnel ports configured.</p>
+              ) : (
+                rows.map((value, index) => (
+                  <div key={index} className="flex items-center gap-2">
+                    <Input
+                      type="text"
+                      inputMode="numeric"
+                      value={value}
+                      onChange={(e) => handleUpdateRow(index, e.target.value)}
+                      placeholder="e.g. 3000"
+                      className="flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="xs"
+                      onClick={() => handleRemoveRow(index)}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                ))
+              )}
+            </div>
+          </fieldset>
+        </>
+      ) : (
+        <p className="text-xs text-muted-foreground max-w-sm">
+          Kubernetes sandboxes have no web terminal, code-server, VNC or tunnel ports.
+        </p>
+      )}
 
       <SessionCostSettingsFields
         isGlobal={isGlobal}
@@ -442,6 +459,8 @@ export function SandboxSettingsEditor({
               " Leave a limit blank for the provider default, or choose Inherit to follow the parent setting."}
             {sandboxProvider === "modal-vm" &&
               ` VM defaults: requests of ${DEFAULT_MODAL_VM_CPU_CORES} CPU cores and ${DEFAULT_MODAL_VM_MEMORY_MIB} MiB; limits of at least ${DEFAULT_MODAL_VM_CPU_LIMIT_CORES} CPU cores and ${DEFAULT_MODAL_VM_MEMORY_LIMIT_MIB} MiB, raised to match larger requests.`}
+            {sandboxProvider === "kubernetes" &&
+              ` Pod defaults: requests of ${DEFAULT_KUBERNETES_CPU_CORES} CPU cores and ${DEFAULT_KUBERNETES_MEMORY_MIB} MiB; limits of at least ${DEFAULT_KUBERNETES_CPU_LIMIT_CORES} CPU cores and ${DEFAULT_KUBERNETES_MEMORY_LIMIT_MIB} MiB, raised to match larger requests.`}
           </p>
           <div className="grid gap-3 max-w-sm sm:grid-cols-2">
             <div>
