@@ -1,0 +1,172 @@
+# Garbage collection for what the control plane no longer tracks, in the
+# sandbox namespace. Runs here, in the control plane's namespace, never next
+# to untrusted code; the Role it uses is in sandboxes/rbac.yaml.
+#
+# Rules (gc.sh; tested by scripts/kubernetes-gc.test.mjs):
+#   1. Pods that ended (Failed/Succeeded) more than an hour ago, counted from
+#      when their last container terminated.
+#   2. Pods whose workspace claim is gone or being deleted.
+#   3. Claims with no pod, deleted only when:
+#      - a destroy-stop released them longer than DESTROY_GRACE_HOURS ago, or
+#      - a create never completed (no create-complete mark and never
+#        preserve-stopped) and they are older than an hour, or
+#      - their last create, resume or preserve is older than RETENTION_HOURS.
+#      A drained or evicted sandbox keeps the full retention: it is judged by
+#      its last activity, not by whether a preserve-stop ran.
+# A claim is first annotated with a resourceVersion precondition, so a resume
+# that touched it in between wins, and the provider treats a claimed volume
+# as gone.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: open-inspect-sandbox-gc
+  namespace: open-inspect
+  labels:
+    app.kubernetes.io/part-of: open-inspect
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: open-inspect-sandbox-gc
+  namespace: open-inspect
+  labels:
+    app.kubernetes.io/part-of: open-inspect
+data:
+  gc.sh: |
+    #!/bin/sh
+    set -eu
+    ns="$SANDBOX_NAMESPACE"
+    now_ms=$(( $(date +%s) * 1000 ))
+    hour_ms=3600000
+    retention_ms=$(( RETENTION_HOURS * hour_ms ))
+    destroy_grace_ms=$(( DESTROY_GRACE_HOURS * hour_ms ))
+    pods=$(kubectl -n "$ns" get pods -l app.kubernetes.io/managed-by=open-inspect -o json)
+    claims=$(kubectl -n "$ns" get pvc -l app.kubernetes.io/managed-by=open-inspect,openinspect.dev/role=sandbox -o json)
+
+    # 1 and 2: ended pods, and pods whose claim is gone or going. A pod ended
+    # when its last container terminated, or else when it stopped being Ready.
+    echo "$pods" | jq -r --argjson now "$now_ms" --argjson claims "$claims" '
+      def ended_at:
+        ([(.status.initContainerStatuses // []) + (.status.containerStatuses // [])
+           | .[] | .state.terminated.finishedAt // empty] | max)
+        // ((.status.conditions // []) | map(select(.type == "Ready")) | .[0].lastTransitionTime)
+        // .status.startTime // .metadata.creationTimestamp;
+      ($claims.items | map(select(.metadata.deletionTimestamp == null) | .metadata.name)) as $live
+      | .items[]
+      | select(.metadata.deletionTimestamp == null)
+      | select(
+          ((.status.phase == "Failed" or .status.phase == "Succeeded")
+            and ($now - (ended_at | fromdateiso8601 * 1000)) > 3600000)
+          or ((.spec.volumes // []) | map(.persistentVolumeClaim.claimName // empty)
+                | any(. as $c | $live | index($c) | not)))
+      | .metadata.name' |
+    while read -r pod; do
+      [ -n "$pod" ] || continue
+      echo "gc: deleting pod $pod"
+      kubectl -n "$ns" delete pod "$pod" --wait=false --ignore-not-found
+    done
+
+    # 3: idle claims.
+    echo "$claims" | jq -r --argjson now "$now_ms" --argjson pods "$pods" \
+        --argjson retention "$retention_ms" --argjson grace "$destroy_grace_ms" '
+      ($pods.items | map(select(.status.phase != "Failed" and .status.phase != "Succeeded")
+        | .metadata.labels["openinspect.dev/sandbox"])) as $busy
+      | .items[]
+      | select(.metadata.deletionTimestamp == null)
+      | select((.metadata.labels["openinspect.dev/sandbox"]) as $h | $busy | index($h) | not)
+      | (.metadata.annotations // {}) as $a
+      | ((.metadata.creationTimestamp | fromdateiso8601) * 1000) as $created
+      | select(
+          ($a["openinspect.dev/destroy-requested-at-ms"] != null
+            and ($now - ($a["openinspect.dev/destroy-requested-at-ms"] | tonumber)) > $grace)
+          or ($a["openinspect.dev/create-complete-at-ms"] == null
+            and $a["openinspect.dev/stopped-at-ms"] == null and ($now - $created) > 3600000)
+          or ($now - (($a["openinspect.dev/last-active-at-ms"] // ($created | tostring)) | tonumber)) > $retention)
+      | "\(.metadata.name) \(.metadata.resourceVersion) \(.metadata.labels["openinspect.dev/sandbox"])"' |
+    while read -r claim version hash; do
+      [ -n "$claim" ] || continue
+      if ! kubectl -n "$ns" annotate pvc "$claim" --resource-version="$version" \
+          "openinspect.dev/gc-claimed-at-ms=$now_ms" >/dev/null 2>&1; then
+        echo "gc: $claim changed since it was read; skipping"
+        continue
+      fi
+      if [ -n "$(kubectl -n "$ns" get pods -l "openinspect.dev/sandbox=$hash" -o name)" ]; then
+        echo "gc: $claim gained a pod; releasing"
+        kubectl -n "$ns" annotate pvc "$claim" openinspect.dev/gc-claimed-at-ms- >/dev/null
+        continue
+      fi
+      echo "gc: deleting claim $claim"
+      kubectl -n "$ns" delete pvc "$claim" --cascade=foreground --wait=false --ignore-not-found
+    done
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: open-inspect-sandbox-gc
+  namespace: open-inspect
+  labels:
+    app.kubernetes.io/name: open-inspect-sandbox-gc
+    app.kubernetes.io/part-of: open-inspect
+spec:
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: open-inspect-sandbox-gc
+            app.kubernetes.io/part-of: open-inspect
+        spec:
+          serviceAccountName: open-inspect-sandbox-gc
+          restartPolicy: Never
+          enableServiceLinks: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: gc
+              # kubectl and jq; pinned by digest.
+              image: alpine/k8s:1.36.4@sha256:358ddfc2d6ff3f00dd461dbd79aaa6d6738709f225b8da0945bb63bd4dbc304e
+              command: ["/bin/sh", "/gc/gc.sh"]
+              env:
+                - name: SANDBOX_NAMESPACE
+                  value: open-inspect-sandboxes
+                # How long an idle workspace is kept after its last activity.
+                - name: RETENTION_HOURS
+                  value: "168"
+                # How long a destroy-stopped workspace is kept for recovery.
+                - name: DESTROY_GRACE_HOURS
+                  value: "24"
+                - name: HOME
+                  value: /tmp
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  cpu: 200m
+                  memory: 128Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: script
+                  mountPath: /gc
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: script
+              configMap:
+                name: open-inspect-sandbox-gc
+            - name: tmp
+              emptyDir: {}

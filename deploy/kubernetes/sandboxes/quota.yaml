@@ -1,0 +1,46 @@
+# Bounds what sandboxes can take from the node they share. Tune to the
+# cluster: these sizes allow about a dozen concurrent default-sized sandboxes.
+# requests.storage limits what claims ask for, not what they use: a
+# provisioner without size enforcement (k3s local-path) does not stop a
+# workspace from filling its disk. See the provider doc.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: sandbox-quota
+  namespace: open-inspect-sandboxes
+  labels:
+    app.kubernetes.io/part-of: open-inspect
+spec:
+  hard:
+    pods: "24"
+    requests.cpu: "16"
+    requests.memory: 48Gi
+    limits.cpu: "64"
+    limits.memory: 128Gi
+    limits.ephemeral-storage: 200Gi
+    persistentvolumeclaims: "60"
+    requests.storage: 1200Gi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: sandbox-limits
+  namespace: open-inspect-sandboxes
+  labels:
+    app.kubernetes.io/part-of: open-inspect
+spec:
+  limits:
+    - type: Container
+      max:
+        cpu: "8"
+        memory: 32Gi
+      default:
+        cpu: 500m
+        memory: 256Mi
+        ephemeral-storage: 1Gi
+      defaultRequest:
+        cpu: 100m
+        memory: 64Mi
+    - type: PersistentVolumeClaim
+      max:
+        storage: 100Gi

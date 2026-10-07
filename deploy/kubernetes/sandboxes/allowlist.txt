@@ -1,0 +1,13 @@
+github.com
+api.github.com
+codeload.github.com
+objects.githubusercontent.com
+raw.githubusercontent.com
+release-assets.githubusercontent.com
+registry.npmjs.org
+pypi.org
+files.pythonhosted.org
+api.anthropic.com
+api.openai.com
+models.dev
+models.opencode.ai

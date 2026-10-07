@@ -1,0 +1,98 @@
+# Squid as an allowlisting CONNECT proxy (squid.conf). Shared by every
+# sandbox and parsing hostile input, so it runs like one: under the
+# sandboxing runtime, as a non-root user, read-only root, no capabilities,
+# no ServiceAccount token. Pin a fixed ClusterIP in an overlay and hand it to
+# the control plane as KUBERNETES_EGRESS_PROXY_URL=http://<ip>:3128: an IP
+# literal makes the sandboxes DNS-less.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: egress-proxy
+  namespace: open-inspect-sandboxes
+  labels:
+    app.kubernetes.io/name: egress-proxy
+    app.kubernetes.io/part-of: open-inspect
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: egress-proxy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: egress-proxy
+        app.kubernetes.io/part-of: open-inspect
+    spec:
+      runtimeClassName: gvisor
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 13 # proxy, in ubuntu/squid
+        runAsGroup: 13
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: squid
+          # Ubuntu 24.04 LTS build; pinned by digest.
+          image: ubuntu/squid:6.6-24.04_beta@sha256:6a097f68bae708cedbabd6188d68c7e2e7a38cedd05a176e1cc0ba29e3bbe029
+          command: ["/usr/sbin/squid", "-f", "/etc/squid-oi/squid.conf", "-N"]
+          ports:
+            - name: proxy
+              containerPort: 3128
+          readinessProbe:
+            tcpSocket:
+              port: proxy
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: proxy
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/squid-oi
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: config
+          configMap:
+            name: egress-proxy-config
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: egress-proxy
+  namespace: open-inspect-sandboxes
+  labels:
+    app.kubernetes.io/name: egress-proxy
+    app.kubernetes.io/part-of: open-inspect
+spec:
+  selector:
+    app.kubernetes.io/name: egress-proxy
+  ports:
+    - name: proxy
+      port: 3128
+      targetPort: proxy
