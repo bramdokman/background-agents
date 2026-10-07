@@ -53,3 +53,16 @@ export interface QueueMetrics {
 export interface QueueMetricsSource {
   metrics(): Promise<QueueMetrics>;
 }
+
+/**
+ * A Kubernetes API identity the host holds, for the Kubernetes sandbox
+ * provider. On the Node host it is the pod's projected ServiceAccount token,
+ * which the kubelet rotates on disk; a reader re-reads it rather than caching
+ * one value for the life of the process.
+ */
+export interface KubernetesCredentials {
+  /** A bearer token. `refresh` bypasses any cached value (after a 401). */
+  token(options?: { refresh?: boolean }): Promise<string>;
+  /** The namespace the host's own identity lives in, when known. */
+  readonly ownNamespace?: string;
+}
