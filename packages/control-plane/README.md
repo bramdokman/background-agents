@@ -391,6 +391,15 @@ Automations:
 - `automation_runs`: one row per repository per invocation, linked by `invocation_id`, carrying the
   firing-time repository snapshot (`repo_owner/repo_name/repo_id/base_branch`) and the session
   linkage. Firing keys live on the invocation, not the run.
+- `usage_quotas`: workspace usage quotas, one row per scope (`user`, `team`, or `workspace`) and
+  period (`day`/`month`) with turn, token, notional-cost and running-sandbox limits and a
+  `warn`/`block` action. Managed by the Owner-only `/usage-quotas` routes.
+- `usage_ledger`: one row per settled turn (keyed by message id, so a replayed completion rewrites
+  rather than adds), carrying the metered user, team, repo, harness, model, cost and tokens; period
+  quotas are sums over it.
+- `running_sandboxes`: the live-sandbox register behind `max_running_sandboxes` — one row per
+  session, taken when a launch is admitted, re-asserted while the sandbox reports a live status,
+  released when it reports a dead one, and bounded by the sandbox's own lifetime.
 
 ## Browser Authentication
 

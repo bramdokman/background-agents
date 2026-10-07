@@ -92,6 +92,9 @@ const OPERATION_LABELS: Record<AuditOperationAction, string> = {
   "team.github_link_removed": "Team GitHub team unlinked",
   "team.github_sync_changed": "Team membership synced from GitHub",
   "automation.executor_changed": "Automation executor changed",
+  "budget.blocked": "Usage quota blocked work",
+  "budget.warned": "Usage quota warning",
+  "budget.quota_changed": "Usage quota changed",
 };
 
 const OBSERVATION_LABELS: Record<AuditObservationAction, string> = {
