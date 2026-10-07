@@ -413,6 +413,78 @@ describe("status writes after a provider await (COL-99)", () => {
     );
   });
 
+  it.each(["spawn", "restore"] as const)(
+    "reports a refused %s launch and leaves the provider untouched",
+    async (kind) => {
+      const sandbox =
+        kind === "spawn"
+          ? createMockSandbox({ status: "pending" })
+          : createMockSandbox({
+              status: "stopped",
+              snapshot_image_id: "snapshot-img-123",
+              snapshot_runtime_version: COMPATIBLE_RUNTIME_VERSION,
+            });
+      const storage = createMockStorage(createMockSession(), sandbox);
+      const broadcaster = createMockBroadcaster();
+      const provider = createMockProvider();
+      const admitLaunch = vi.fn(async () => ({
+        admitted: false as const,
+        reason: "Sandbox limit reached: You already have 2 of 2 sandboxes running.",
+      }));
+      const manager = createTestLifecycleManager(
+        provider,
+        storage,
+        storage,
+        broadcaster,
+        createMockWebSocketManager(false),
+        createMockAlarmScheduler(),
+        createMockIdGenerator(),
+        createUnmanagedShutdown(),
+        { ...createTestConfig(), admitLaunch }
+      );
+
+      await manager.spawnSandbox();
+
+      expect(admitLaunch).toHaveBeenCalledOnce();
+      expect(provider.createSandbox).not.toHaveBeenCalled();
+      expect(provider.restoreFromSnapshot).not.toHaveBeenCalled();
+      expect(sandbox.status).toBe(kind === "spawn" ? "pending" : "stopped");
+      expect(broadcaster.messages).toEqual([
+        {
+          type: "sandbox_error",
+          error: "Sandbox limit reached: You already have 2 of 2 sandboxes running.",
+        },
+      ]);
+      expect(storage.setLastSpawnError).toHaveBeenCalledWith(
+        "Sandbox limit reached: You already have 2 of 2 sandboxes running.",
+        expect.any(Number)
+      );
+    }
+  );
+
+  it("launches once admission grants the slot", async () => {
+    const sandbox = createMockSandbox({ status: "pending" });
+    const storage = createMockStorage(createMockSession(), sandbox);
+    const broadcaster = createMockBroadcaster();
+    const provider = createMockProvider();
+    const manager = createTestLifecycleManager(
+      provider,
+      storage,
+      storage,
+      broadcaster,
+      createMockWebSocketManager(false),
+      createMockAlarmScheduler(),
+      createMockIdGenerator(),
+      createUnmanagedShutdown(),
+      { ...createTestConfig(), admitLaunch: async () => ({ admitted: true }) }
+    );
+
+    await manager.spawnSandbox();
+
+    expect(provider.createSandbox).toHaveBeenCalledOnce();
+    expect(broadcaster.messages).toContainEqual({ type: "sandbox_spawning" });
+  });
+
   it("leaves a sandbox that connected during the provider call ready when the call then fails", async () => {
     const sandbox = createMockSandbox({ status: "failed" });
     const { storage, broadcaster, manager } = harness(sandbox, async () => {

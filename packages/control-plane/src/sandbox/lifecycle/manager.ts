@@ -337,7 +337,16 @@ interface AlarmContext extends WatchdogContext {
 /**
  * Complete lifecycle configuration.
  */
+/** Whether provider work may launch; a refusal carries the message shown to the session. */
+export type SandboxLaunchAdmission = { admitted: true } | { admitted: false; reason: string };
+
 export interface SandboxLifecycleConfig extends AlarmPolicyConfig, SandboxLaunchConfig {
+  /**
+   * Admission beyond the circuit breaker for every decision that launches
+   * provider work, such as the workspace's running-sandbox caps. Absent, every
+   * launch is admitted.
+   */
+  admitLaunch?: () => Promise<SandboxLaunchAdmission>;
   /** Persist a user-visible lifecycle warning in the session event stream. */
   recordWarning?: (message: string, eventId: string) => void;
   /** Pump the message queue once a deferred connect-timeout re-drive may proceed. */
@@ -600,7 +609,7 @@ export class SandboxLifecycleManager
         return;
 
       case "restore":
-        if (!this.admitLaunch(sandboxState, now)) return;
+        if (!(await this.admitLaunch(sandboxState, now))) return;
         this.log.info("Spawn decision: restore", {
           snapshot_image_id: spawnDecision.snapshotImageId,
           snapshot_runtime_version: spawnDecision.snapshotRuntimeVersion,
@@ -613,7 +622,7 @@ export class SandboxLifecycleManager
         return;
 
       case "resume":
-        if (!this.admitLaunch(sandboxState, now)) return;
+        if (!(await this.admitLaunch(sandboxState, now))) return;
         this.log.info("Spawn decision: resume", {
           provider_object_id: spawnDecision.providerObjectId,
         });
@@ -625,7 +634,7 @@ export class SandboxLifecycleManager
         return;
 
       case "spawn":
-        if (!this.admitLaunch(sandboxState, now)) return;
+        if (!(await this.admitLaunch(sandboxState, now))) return;
         if (spawnDecision.reason) {
           this.log.info("Spawn decision: spawn", {
             event: "sandbox.snapshot_rejected",
@@ -646,8 +655,11 @@ export class SandboxLifecycleManager
     });
   }
 
-  /** Circuit-breaker admission for decisions that launch provider work. */
-  private admitLaunch(sandboxState: SandboxCircuitBreakerInfo | null, now: number): boolean {
+  /** Circuit-breaker and workspace admission for decisions that launch provider work. */
+  private async admitLaunch(
+    sandboxState: SandboxCircuitBreakerInfo | null,
+    now: number
+  ): Promise<boolean> {
     const circuitBreakerState = toCircuitBreakerState(sandboxState);
     const cbDecision = evaluateCircuitBreaker(circuitBreakerState, this.config.circuitBreaker, now);
 
@@ -665,6 +677,17 @@ export class SandboxLifecycleManager
       this.reportSandboxError(
         `Sandbox spawning temporarily disabled after ${circuitBreakerState.failureCount} failures. Try again in ${Math.ceil((cbDecision.waitTimeMs || 0) / 1000)} seconds.`
       );
+      return false;
+    }
+    const admission = (await this.config.admitLaunch?.()) ?? { admitted: true };
+    if (!admission.admitted) {
+      // Like an open breaker: the reason is reported, nothing changes state,
+      // and the queued prompt waits for the next drive of the queue.
+      this.log.warn("Sandbox launch refused", {
+        event: "sandbox.launch_refused",
+        reason: admission.reason,
+      });
+      this.reportSandboxError(admission.reason);
       return false;
     }
     return true;
@@ -1969,6 +1992,7 @@ export class SandboxLifecycleManager
       this.wsManager.sendToSandbox({ type: "shutdown" });
     }
     this.storage.updateSandboxStatus("stopped");
+    this.broadcaster.broadcast({ type: "sandbox_status", status: "stopped" });
     if (sandbox?.modal_object_id && this.canStopProviderSandbox()) {
       await this.stopProviderSandboxSafely({
         reason: "session_cancelled",

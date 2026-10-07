@@ -204,13 +204,15 @@ export class UsageQuotaService {
     return admission;
   }
 
-  /** The owning team of a session in the global store; null for a workspace-owned or unknown session. */
-  async sessionTeamId(sessionId: string): Promise<string | null> {
+  /** A session's owner and owning team in the global store, which the session's own storage does not hold. */
+  async sessionOwnership(
+    sessionId: string
+  ): Promise<{ userId: string | null; teamId: string | null }> {
     const row = await this.db
-      .prepare("SELECT owner_team_id FROM sessions WHERE id = ?")
+      .prepare("SELECT user_id, owner_team_id FROM sessions WHERE id = ?")
       .bind(sessionId)
-      .first<{ owner_team_id: string | null }>();
-    return row?.owner_team_id ?? null;
+      .first<{ user_id: string | null; owner_team_id: string | null }>();
+    return { userId: row?.user_id ?? null, teamId: row?.owner_team_id ?? null };
   }
 
   /** The caller's sandbox is live until `expiresAt`; keeps its slot current. */

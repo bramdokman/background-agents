@@ -43,6 +43,7 @@ import {
   type SessionContextReader,
   type IdGenerator,
   type SandboxShutdownLifecycle,
+  type SandboxLifecycleConfig,
 } from "../sandbox/lifecycle/manager";
 import type { ImageBuildLookup } from "../sandbox/lifecycle/image-selection";
 // The composition root supplies launch integration ports, not consumer-facing launch mechanics.
@@ -57,7 +58,7 @@ import { UserStore } from "../db/user-store";
 import { IntegrationSettingsStore, resolveSlackSettings } from "../db/integration-settings";
 import { SessionIndexStore } from "../db/session-index";
 import { UsageLedgerStore } from "../db/usage-ledger";
-import { UsageQuotaService } from "../authorization/usage-quotas";
+import { describeSandboxCapRefusal, UsageQuotaService } from "../authorization/usage-quotas";
 import { TeamMembershipStore } from "../db/team-memberships";
 import { TeamChannelBindingStore } from "../db/team-channel-bindings";
 import { SessionCollaboratorStore } from "../db/session-collaborators";
@@ -116,6 +117,7 @@ import { SandboxShutdownRepository } from "./sandbox-shutdown-repository";
 import { SandboxArtifactEventHandler } from "./sandbox-events/artifact.handler";
 import { SandboxExecutionEventHandler } from "./sandbox-events/execution.handler";
 import { resolveSettledTurn } from "./settled-turn";
+import { projectSandboxLiveness } from "./sandbox-liveness-projection";
 import { SessionSandboxEventProcessor } from "./sandbox-events/processor";
 import { SandboxRuntimeEventHandler } from "./sandbox-events/runtime.handler";
 import { SandboxStreamingEventHandler } from "./sandbox-events/streaming.handler";
@@ -320,8 +322,19 @@ export function createSessionRuntime(platform: SessionPlatform, env: Env): Sessi
     JSON.stringify({ type: "pong", timestamp: Date.now() })
   );
 
-  // Tier 3 — outbound delivery over the socket registry.
-  const messenger: SessionMessenger = new SessionMessengerImpl(wsManager);
+  // Tier 3 — outbound delivery over the socket registry. Sandbox status
+  // announcements also keep the workspace's running-sandbox register current.
+  const usageQuotas = new UsageQuotaService(db);
+  const messenger: SessionMessenger = projectSandboxLiveness(new SessionMessengerImpl(wsManager), {
+    sink: {
+      live: (sessionId) =>
+        usageQuotas.assertSandboxRunning(sessionId, Date.now() + getExecutionTimeoutMs()),
+      dead: (sessionId) => usageQuotas.releaseSandbox(sessionId),
+    },
+    getSessionId: getPublicSessionId,
+    backgroundTasks,
+    log,
+  });
 
   // Constructed eagerly — an invalid SCM configuration fails right here. The
   // cell is a local `let` so live-DO integration tests can substitute a stub
@@ -390,7 +403,6 @@ export function createSessionRuntime(platform: SessionPlatform, env: Env): Sessi
   // same task keeps the session's running-sandbox slot current, since a turn
   // settling proves the sandbox is live.
   const usageLedger = new UsageLedgerStore(db);
-  const usageQuotas = new UsageQuotaService(db);
   const recordSettledTurn = (messageId: string, settledAt: number): void => {
     const turn = resolveSettledTurn(
       {
@@ -545,6 +557,18 @@ export function createSessionRuntime(platform: SessionPlatform, env: Env): Sessi
     recordWarning: (message, eventId) =>
       recordSessionWarning(eventRepository, messenger, message, eventId),
     resumeQueuedWork: () => messageQueue.processMessageQueue(),
+    admitLaunch: async () => {
+      const sessionId = getPublicSessionId();
+      const ownership = await usageQuotas.sessionOwnership(sessionId);
+      const admission = await usageQuotas.admitSandboxLaunch({
+        sessionId,
+        ...ownership,
+        expiresAt: Date.now() + getExecutionTimeoutMs(),
+      });
+      return admission.admitted
+        ? admission
+        : { admitted: false, reason: describeSandboxCapRefusal(admission) };
+    },
   });
   const executionStop: ExecutionStopCoordinator = new ExecutionStopCoordinator(
     log,
@@ -590,7 +614,7 @@ export function createSessionRuntime(platform: SessionPlatform, env: Env): Sessi
         if (!sessionId) return;
         await usageQuotas.admitPrompt({
           userId,
-          teamId: await usageQuotas.sessionTeamId(sessionId),
+          teamId: (await usageQuotas.sessionOwnership(sessionId)).teamId,
           sessionId,
           requestId: crypto.randomUUID(),
         });
@@ -1124,6 +1148,7 @@ export function createSessionRuntime(platform: SessionPlatform, env: Env): Sessi
 interface LifecycleManagerDeps {
   recordWarning: (message: string, eventId: string) => void;
   resumeQueuedWork: () => Promise<void>;
+  admitLaunch: SandboxLifecycleConfig["admitLaunch"];
   shutdown: SandboxShutdownLifecycle;
   access: SandboxAccess;
   provider: SandboxProvider;
@@ -1225,6 +1250,7 @@ function createLifecycleManager(deps: LifecycleManagerDeps): SandboxLifecycleMan
     slackAgentNotifyLookup,
     recordWarning: deps.recordWarning,
     resumeQueuedWork: deps.resumeQueuedWork,
+    admitLaunch: deps.admitLaunch,
   };
 
   // The image lookup exists only for providers that support prebuilt images,
