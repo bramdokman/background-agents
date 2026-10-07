@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { buildBootstrapSql, parseArgs, run } from "./bootstrap-workspace-owner.ts";
+import { buildBootstrapSql } from "../packages/control-plane/src/node/owner-bootstrap-sql.ts";
+import { parseArgs, run } from "./bootstrap-workspace-owner.ts";
 
 const USER_ID = "11111111111111111111111111111111";
 const OTHER_USER_ID = "22222222222222222222222222222222";
