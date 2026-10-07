@@ -17,6 +17,7 @@ import {
   SessionDraftExpiryClient,
 } from "./session/abandoned-draft-sweep";
 import type { SessionRuntimeClient } from "./session/runtime-client";
+import { runGitHubTeamSync } from "./teams/github-team-sync";
 import {
   SCHEDULED_JOBS,
   SCHEDULER_TICK_CRON,
@@ -32,6 +33,7 @@ vi.mock("./image-builds/scheduler", async (importOriginal) => ({
   ...(await importOriginal<typeof ImageBuildScheduler>()),
   runImageBuildScheduler: vi.fn(async () => ({})),
 }));
+vi.mock("./teams/github-team-sync", () => ({ runGitHubTeamSync: vi.fn(async () => []) }));
 vi.mock("./scheduler/scheduler", () => ({
   Scheduler: vi.fn(function () {
     return { tick: schedulerTick };
@@ -99,17 +101,23 @@ describe("SCHEDULED_JOBS", () => {
     expect(findScheduledJob("0 0 * * *")).toBeUndefined();
   });
 
-  it("runs the every-minute tick: queue health in the background, the scheduler tick awaited", async () => {
+  it("runs the every-minute tick: queue health and team sync in the background, the scheduler tick awaited", async () => {
     const deps = fakeDeps();
 
     await findScheduledJob(SCHEDULER_TICK_CRON)!.run(deps, 1_000);
 
     expect(Scheduler).toHaveBeenCalledWith(deps.db, deps.env, deps.backgroundTasks);
     expect(schedulerTick).toHaveBeenCalledTimes(1);
-    expect(deps.submitted.map((entry) => entry.name)).toEqual(["autofix_queue_health"]);
+    expect(deps.submitted.map((entry) => entry.name)).toEqual([
+      "autofix_queue_health",
+      "github_team_sync",
+    ]);
     expect(checkAutofixQueueHealth).not.toHaveBeenCalled();
+    expect(runGitHubTeamSync).not.toHaveBeenCalled();
     await deps.submitted[0]!.task();
     expect(checkAutofixQueueHealth).toHaveBeenCalledWith(deps.env, deps.log);
+    await deps.submitted[1]!.task();
+    expect(runGitHubTeamSync).toHaveBeenCalledWith(deps.env, deps.db, deps.log, 1_000, "request-1");
   });
 
   it("runs the image-build scheduler with the run's correlation", async () => {
