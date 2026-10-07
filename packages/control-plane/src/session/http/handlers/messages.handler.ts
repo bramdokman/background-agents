@@ -10,6 +10,7 @@ import type { MessageService } from "../../services/message.service";
 import { parseEventListCursor } from "../../event-cursor";
 import { parseMessageListCursor } from "../../message-cursor";
 import { SessionAttachmentError } from "../../session-attachment-resolver";
+import { UsageQuotaExceededError } from "../../../authorization/usage-quotas";
 import { sessionTraceFormatSchema, sessionTraceIncludeSchema } from "../../contracts";
 import {
   BudgetExhaustedError,
@@ -53,6 +54,19 @@ export class MessagesHandler {
       }
       if (error instanceof BudgetExhaustedError) {
         return Response.json({ error: error.message, code: "BUDGET_EXHAUSTED" }, { status: 409 });
+      }
+      if (error instanceof UsageQuotaExceededError) {
+        const { quota, exceeded } = error.violation;
+        return Response.json(
+          {
+            error: error.message,
+            code: "USAGE_QUOTA_EXCEEDED",
+            scopeKind: quota.scopeKind,
+            period: quota.period,
+            exceeded,
+          },
+          { status: 429 }
+        );
       }
       if (error instanceof PromptQueueFullError) {
         return Response.json({ error: error.message, code: "PROMPT_QUEUE_FULL" }, { status: 429 });
