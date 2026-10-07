@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   BUILT_IN_ROLE_KEYS,
   BUILT_IN_ROLE_REGISTRY,
+  OWNER_ONLY_PERMISSIONS,
   PERMISSION_IDS,
   SCOPED_PERMISSION_PAIRS,
   effectiveAuthorizationSchema,
@@ -62,7 +63,7 @@ describe("RBAC registry", () => {
   });
 
   it("contains unique, sorted permission identifiers", () => {
-    expect(PERMISSION_IDS).toHaveLength(46);
+    expect(PERMISSION_IDS).toHaveLength(47);
     expect(new Set(PERMISSION_IDS).size).toBe(PERMISSION_IDS.length);
     expect(PERMISSION_IDS).toEqual([...PERMISSION_IDS].sort());
   });
@@ -94,12 +95,11 @@ describe("RBAC registry", () => {
     expect(permissionsForBuiltInRole("owner")).toEqual(PERMISSION_IDS);
   });
 
-  it("reserves ownership transfer for Owner", () => {
+  it.each(OWNER_ONLY_PERMISSIONS)("reserves %s for Owner", (permission) => {
     for (const role of BUILT_IN_ROLE_KEYS) {
-      expect(permissionsForBuiltInRole(role).includes("workspace.transfer_ownership")).toBe(
-        role === "owner"
-      );
+      expect(permissionsForBuiltInRole(role).includes(permission)).toBe(role === "owner");
     }
+    expect(isCustomRolePermission(permission)).toBe(false);
   });
 
   it("grants Members workspace-wide session operations", () => {

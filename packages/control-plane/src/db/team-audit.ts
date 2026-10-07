@@ -6,7 +6,7 @@ export interface AppliedAuditEvent {
   requestId: string;
   actorUserId: string;
   action: AuditOperationAction;
-  resourceType: "team" | "automation";
+  resourceType: "team" | "automation" | "session" | "usage_quota";
   resourceId: string;
   teamId: string | null;
   targetUserId?: string;
