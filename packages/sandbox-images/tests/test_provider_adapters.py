@@ -233,3 +233,78 @@ def test_daytona_config_loads_snapshot_memory(monkeypatch):
     load_config = runpy.run_path(str(ROOT / "packages/daytona-infra/src/config.py"))["load_config"]
 
     assert load_config().base_snapshot_memory_gib == 4
+
+
+def kubernetes_plan():
+    plan = {**PLAN, "provider": "kubernetes"}
+    plan["target"] = {**PLAN["target"], "uid": 1000}
+    return plan
+
+
+@pytest.mark.parametrize("failed", [False, True])
+@pytest.mark.parametrize("push", [False, True])
+def test_kubernetes_build_verifies_before_publishing(monkeypatch, tmp_path, failed, push):
+    bundle_directory = tmp_path / "bundle"
+    bundle_directory.mkdir()
+    monkeypatch.setattr(
+        bundle,
+        "pack_bundle",
+        Mock(return_value=bundle.PackedBundle(bundle_directory, kubernetes_plan())),
+    )
+    publish = Mock()
+    monkeypatch.setattr(native, "write_build_result", publish)
+    monkeypatch.setenv("KUBERNETES_SANDBOX_IMAGE_REPOSITORY", "registry.test/sandbox")
+    monkeypatch.setenv("KUBERNETES_VERIFY_RUNTIME", "runsc")
+    monkeypatch.setenv("KUBERNETES_IMAGE_PUSH", "true" if push else "")
+    monkeypatch.delenv("OPENINSPECT_IMAGE_CANDIDATE", raising=False)
+    commands = []
+
+    def run(command, check=False, **kwargs):
+        commands.append(command)
+        if command[:2] == ["docker", "run"]:
+            return SimpleNamespace(returncode=1 if failed else 0)
+        if command[:3] == ["docker", "image", "inspect"]:
+            return SimpleNamespace(
+                returncode=0, stdout='["registry.test/sandbox@sha256:' + "d" * 64 + '"]'
+            )
+        return SimpleNamespace(returncode=0, stdout="")
+
+    import subprocess
+
+    monkeypatch.setattr(subprocess, "run", run)
+    main = runpy.run_path(str(ROOT / "packages/kubernetes-infra/build-image.py"))["main"]
+    reference = "registry.test/sandbox:" + "a" * 12
+    if failed:
+        with pytest.raises(RuntimeError, match="verification failed"):
+            main()
+        publish.assert_not_called()
+        assert not any(command[:2] == ["docker", "push"] for command in commands)
+        return
+    main()
+    verify = next(command for command in commands if command[:2] == ["docker", "run"])
+    assert verify[verify.index("--runtime") : verify.index("--runtime") + 2] == [
+        "--runtime",
+        "runsc",
+    ]
+    if push:
+        assert ["docker", "push", reference] in commands
+        publish.assert_called_once_with("registry.test/sandbox@sha256:" + "d" * 64)
+    else:
+        publish.assert_called_once_with(reference)
+
+
+def test_kubernetes_dockerfile_pins_user_environment_and_entrypoint():
+    render = runpy.run_path(str(ROOT / "packages/kubernetes-infra/build-image.py"))[
+        "render_dockerfile"
+    ]
+    dockerfile = render(kubernetes_plan())
+    assert dockerfile.startswith("FROM test-base\n")
+    assert "USER 1000:1000\n" in dockerfile
+    assert 'ENV PACKED_PLAN="true"\n' in dockerfile
+    assert 'ENV SANDBOX_VERSION="test-runtime"\n' in dockerfile
+    assert (
+        'ENTRYPOINT ["/opt/openinspect/python/bin/python", "-m", "sandbox_runtime.entrypoint"]'
+        in dockerfile
+    )
+    with pytest.raises(ValueError, match="numeric uid"):
+        render(PLAN)

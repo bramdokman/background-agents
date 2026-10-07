@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,8 @@ def build_image(root: Path, provider: str) -> dict[str, Any]:
         ),
         "vercel": (root, ["node", "packages/vercel-infra/dist/build-base-snapshot.js"]),
         "opencomputer": (root, ["node", "packages/opencomputer-infra/dist/build-template.js"]),
+        # Standard library only: the builder drives the Docker CLI.
+        "kubernetes": (root, [sys.executable, "packages/kubernetes-infra/build-image.py"]),
     }
     if provider in ("vercel", "opencomputer"):
         subprocess.run(["npm", "run", "build", "-w", "@open-inspect/shared"], cwd=root, check=True)

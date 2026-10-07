@@ -10,13 +10,13 @@ import shutil
 import stat
 import tempfile
 from pathlib import Path
-from typing import Any, NamedTuple, TypedDict
+from typing import Any, NamedTuple, NotRequired, TypedDict
 
 from .configuration import IMAGE_PACKAGE, RUNTIME_PACKAGE, read_json, runtime_environment
 from .locks import update_locks
 
 DOCKER_PACKAGES = ("engine", "cli", "containerd", "buildx", "compose")
-PROVIDERS = ("modal", "daytona", "e2b", "vercel", "opencomputer")
+PROVIDERS = ("modal", "daytona", "e2b", "vercel", "opencomputer", "kubernetes")
 EXCLUDED = {
     ".terraform",
     ".git",
@@ -53,6 +53,9 @@ class ImageTarget(TypedDict):
     node: str
     user: str
     home: str
+    # Fixed numeric id for targets whose platform pins the runtime user by
+    # number (a Kubernetes pod's runAsUser); others take useradd's choice.
+    uid: NotRequired[int]
 
 
 class ImagePlan(TypedDict):
@@ -155,8 +158,10 @@ def plan_image(root: Path, provider: str) -> ImagePlan:
         IMAGE_PACKAGE / "uv.lock",
         IMAGE_PACKAGE / "targets.json",
         Path(f"packages/{provider}-infra"),
-        Path(f"terraform/modules/{INFRA_MODULES[provider]}"),
     )
+    # Kubernetes deploys plain manifests (deploy/kubernetes), not a Terraform module.
+    if provider in INFRA_MODULES:
+        paths += (Path(f"terraform/modules/{INFRA_MODULES[provider]}"),)
     if provider in ("vercel", "opencomputer"):
         paths += (Path("package-lock.json"),)
     if provider == "vercel":
@@ -205,6 +210,7 @@ def pack_bundle(root: Path, provider: str, output_root: Path) -> PackedBundle:
             "OI_OS": plan["target"]["os"],
             "OI_RUNTIME_USER": plan["target"]["user"],
             "OI_RUNTIME_HOME": plan["target"]["home"],
+            "OI_RUNTIME_UID": str(plan["target"].get("uid", "")),
             "PYTHON_VERSION": toolchain["python"],
             "AGENT_BROWSER_VERSION": toolchain["agentBrowser"],
             "AGENT_BROWSER_SHA256": toolchain["agentBrowserSha256"],
