@@ -18,8 +18,10 @@ import { GitHubProviderIdentityResolver } from "./providers/github-identity";
 import { GitHubSignInProfileResolver } from "./providers/github-profile";
 import { GoogleSignInProfileResolver } from "./providers/google-profile";
 import { MicrosoftSignInProfileResolver } from "./providers/microsoft-profile";
+import { AdmissionAudit } from "./admission-audit";
 import { SignInClaim } from "./sign-in-claim";
 import { IdentityClaimStore } from "../../db/identity-claim-store";
+import { SignInAuditStore } from "../../db/sign-in-audit-store";
 import type { SqlDatabase } from "../../db/sql-database";
 import type { Env } from "../../types";
 
@@ -245,15 +247,21 @@ function createMicrosoftAuthConfig(
   };
 }
 
-function withClaim<Config extends SocialProviderAuthConfig>(
+interface ResolverDecorators {
+  readonly claim: SignInClaim;
+  readonly audit: AdmissionAudit;
+}
+
+/** Audit sits inside the claim: a denial is recorded, and nothing is claimed. */
+function decorateResolver<Config extends SocialProviderAuthConfig>(
   provider: SignInProvider,
-  claim: SignInClaim,
+  { claim, audit }: ResolverDecorators,
   config: Config | undefined
 ): Config | undefined {
   if (!config) return undefined;
   return {
     ...config,
-    getUserInfo: claim.wrapResolver(provider, config.getUserInfo),
+    getUserInfo: claim.wrapResolver(provider, audit.wrapResolver(provider, config.getUserInfo)),
   };
 }
 
@@ -262,20 +270,23 @@ function createUserAuthRuntime(
   database: SqlDatabase
 ): UserAuthRuntime {
   const admissionPolicy = new AdmissionPolicy(config.admission);
-  const claim = new SignInClaim(new IdentityClaimStore(database));
-  const github = withClaim(
+  const decorators: ResolverDecorators = {
+    claim: new SignInClaim(new IdentityClaimStore(database)),
+    audit: new AdmissionAudit(new SignInAuditStore(database)),
+  };
+  const github = decorateResolver(
     "github",
-    claim,
+    decorators,
     createGitHubAuthConfig(config.providers.github, config.appName, admissionPolicy)
   );
-  const google = withClaim(
+  const google = decorateResolver(
     "google",
-    claim,
+    decorators,
     createGoogleAuthConfig(config.providers.google, admissionPolicy)
   );
-  const microsoft = withClaim(
+  const microsoft = decorateResolver(
     "microsoft",
-    claim,
+    decorators,
     createMicrosoftAuthConfig(config.providers.microsoft, admissionPolicy)
   );
 
