@@ -4,11 +4,14 @@ description: Set a USD cost limit for sessions at the workspace, repository, env
 audience: team-owner
 owner: control-plane
 status: published
-lastReviewed: "2026-09-23"
+lastReviewed: "2026-10-07"
 relatedCode:
   - packages/control-plane/src/session/budget-service.ts
   - packages/control-plane/src/session/budget-authorization.ts
   - packages/control-plane/src/session/message-queue.ts
+  - packages/control-plane/src/authorization/usage-quotas.ts
+  - packages/control-plane/src/routes/usage-quotas.ts
+  - packages/shared/src/types/usage-quotas.ts
   - packages/shared/src/types/session-api.ts
   - packages/web/src/components/sidebar/budget-section.tsx
   - packages/web/src/components/settings/session-cost-settings-fields.tsx
@@ -78,14 +81,51 @@ Raise the limit above the current total, or remove it, from the Budget section. 
   at or above the limit, not at the exact dollar amount.
 </Callout>
 
+## Workspace usage quotas
+
+A spend limit protects one session. A usage quota protects a budget shared across sessions: how much one user, one team or the whole workspace may use in a period, and how many sandboxes may run at once. On flat-fee model plans the dollar figure is notional, so quotas also meter turns and tokens.
+
+Quotas are rows that an Owner manages over the API; there is no settings page yet. Each row names a scope and a period and sets one or more limits:
+
+| Field                 | Values                                          | Meaning                                                                                         |
+| --------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `scopeKind`/`scopeId` | `user` + user id, `team` + team id, `workspace` | Whose usage the row limits. A row counts only usage of its own scope.                           |
+| `period`              | `day` (UTC day) or `month` (calendar month)     | The window; it resets at the UTC boundary.                                                      |
+| `maxTurns`            | integer                                         | Settled turns in the window.                                                                    |
+| `maxTokens`           | integer                                         | Input plus output tokens of settled turns in the window.                                        |
+| `maxCostUsd`          | number                                          | Reported cost of settled turns in the window.                                                   |
+| `maxRunningSandboxes` | integer                                         | Sandboxes live at once. Independent of the period. On a `workspace` row this is the global cap. |
+| `action`              | `block` (default) or `warn`                     | `block` refuses the work; `warn` lets it through and writes an audit event.                     |
+
+```bash
+# Three turns a day for one user
+curl -X PUT "$CONTROL_PLANE_URL/usage-quotas" -H "Content-Type: application/json" \
+  -d '{"scopeKind":"user","scopeId":"<user id>","period":"day","maxTurns":3}'
+# At most two sandboxes running across the workspace
+curl -X PUT "$CONTROL_PLANE_URL/usage-quotas" -H "Content-Type: application/json" \
+  -d '{"scopeKind":"workspace","maxRunningSandboxes":2}'
+```
+
+`GET /usage-quotas` lists the rows, `DELETE /usage-quotas/:id` removes one, and `GET /usage-quotas/usage/:userId` shows a user's settled usage in the current day and month, their own quota rows, and how many sandboxes they have running. All four routes need the Owner-only `usage_quotas.manage` permission.
+
+### How a quota is applied
+
+Usage is read from the usage ledger, which gets one row per **settled** turn — written when the turn's `execution_complete` lands, from the same report that settles the session's cost. A turn that is still running does not count yet, and a completion delivered twice rewrites the same row rather than counting twice.
+
+When a prompt is sent, the control plane checks the prompting user's row, the session's team row and the workspace row for both periods. If any blocking row is used up, the prompt is refused with `429 USAGE_QUOTA_EXCEEDED` (or the `USAGE_QUOTA_EXCEEDED` socket error) naming the most specific exceeded scope, and a `budget.blocked` event is written to the [audit log](/administration/audit-log). If only warn rows are exceeded, the prompt proceeds and `budget.warned` is written. With no quota rows nothing is limited. The session's own spend limit is checked separately and is unchanged.
+
+When a session is about to launch a sandbox, the global cap (the workspace row) and the session owner's per-user cap (their user row) are checked together. A refused launch is reported to the session as a sandbox error, audited as `budget.blocked`, and leaves the prompt queued; it starts the next time the session is prompted after a sandbox has stopped. A sandbox counts from the moment its launch is admitted until it reports stopped, failed or stale.
+
 ## Troubleshooting
 
-| Symptom                                          | Cause                                                       | Fix                                                                                              |
-| ------------------------------------------------ | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Composer says the cost limit was reached         | Reported cost hit the session's effective limit             | Owner: **Edit limit** in the Budget section, raise or remove it, then send the follow-up.        |
-| Saving `0` fails                                 | Limits must be positive; blank means unlimited              | Clear the field instead of entering zero.                                                        |
-| A repository session ignores the workspace limit | The repository or environment has its own value             | Check the repository's and environment's Session Cost fields; blank inherits, a value overrides. |
-| Budget section shows no **Edit limit** button    | You are not the session owner, or lack lifecycle permission | Ask the owner to change it, or change the scope default in Settings.                             |
+| Symptom                                          | Cause                                                       | Fix                                                                                               |
+| ------------------------------------------------ | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Composer says the cost limit was reached         | Reported cost hit the session's effective limit             | Owner: **Edit limit** in the Budget section, raise or remove it, then send the follow-up.         |
+| Saving `0` fails                                 | Limits must be positive; blank means unlimited              | Clear the field instead of entering zero.                                                         |
+| A repository session ignores the workspace limit | The repository or environment has its own value             | Check the repository's and environment's Session Cost fields; blank inherits, a value overrides.  |
+| Budget section shows no **Edit limit** button    | You are not the session owner, or lack lifecycle permission | Ask the owner to change it, or change the scope default in Settings.                              |
+| Prompt refused with `USAGE_QUOTA_EXCEEDED`       | A user, team or workspace usage quota is used up            | Wait for the UTC window to reset, or ask an Owner to raise the row with `PUT /usage-quotas`.      |
+| "Sandbox limit reached" in the session           | The per-user or global running-sandbox cap is hit           | Stop or archive a running session, then prompt again; the queued prompt starts on the next drive. |
 
 ## Next steps
 

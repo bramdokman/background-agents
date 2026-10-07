@@ -4,7 +4,7 @@ description: Every documented limit, cap, and default in OpenInspect, grouped by
 audience: user
 owner: platform
 status: published
-lastReviewed: "2026-09-28"
+lastReviewed: "2026-10-07"
 relatedCode:
   - packages/shared/src/types/repositories.ts
   - packages/shared/src/types/session-attachments.ts
@@ -16,6 +16,7 @@ relatedCode:
   - packages/shared/src/types/analytics.ts
   - packages/control-plane/src/session/message-queue.ts
   - packages/control-plane/src/sandbox/execution-budget.ts
+  - packages/control-plane/src/authorization/usage-quotas.ts
   - packages/control-plane/src/scheduler/scheduler.ts
   - packages/control-plane/src/types.ts
   - packages/linear-bot/src/kv-store.ts
@@ -32,16 +33,18 @@ This page collects the limits and defaults that OpenInspect enforces. Values mar
 
 ## Sessions
 
-| Limit                                | Value                                                       | Where it applies                                                                                                             |
-| ------------------------------------ | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Repositories per session target      | 10                                                          | Ad-hoc multi-repository sets and environments                                                                                |
-| Prompt length                        | 64,000 characters                                           | Web prompts and child follow-up prompts sent with `send-child-prompt`                                                        |
-| Unfinished prompts per session       | 50                                                          | Prompts that are pending or processing. A further prompt is rejected with "A session may have at most 50 unfinished prompts" |
-| Images per prompt                    | 6                                                           | Web and Slack prompts                                                                                                        |
-| Image size                           | 10 MiB each                                                 | PNG, JPEG, WebP, or GIF                                                                                                      |
-| Concurrent child sessions per parent | 5 by default                                                | Sandbox setting `maxConcurrentChildSessions`                                                                                 |
-| Total child sessions per parent      | 15 by default                                               | Sandbox setting `maxTotalChildSessions`                                                                                      |
-| Session cost limit                   | Blank by default (no limit); a positive USD amount when set | Sandbox setting `maxSessionCostUsd`, overridable per session from the Budget sidebar section                                 |
+| Limit                                | Value                                                       | Where it applies                                                                                                                                            |
+| ------------------------------------ | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Repositories per session target      | 10                                                          | Ad-hoc multi-repository sets and environments                                                                                                               |
+| Prompt length                        | 64,000 characters                                           | Web prompts and child follow-up prompts sent with `send-child-prompt`                                                                                       |
+| Unfinished prompts per session       | 50                                                          | Prompts that are pending or processing. A further prompt is rejected with "A session may have at most 50 unfinished prompts"                                |
+| Images per prompt                    | 6                                                           | Web and Slack prompts                                                                                                                                       |
+| Image size                           | 10 MiB each                                                 | PNG, JPEG, WebP, or GIF                                                                                                                                     |
+| Concurrent child sessions per parent | 5 by default                                                | Sandbox setting `maxConcurrentChildSessions`                                                                                                                |
+| Total child sessions per parent      | 15 by default                                               | Sandbox setting `maxTotalChildSessions`                                                                                                                     |
+| Session cost limit                   | Blank by default (no limit); a positive USD amount when set | Sandbox setting `maxSessionCostUsd`, overridable per session from the Budget sidebar section                                                                |
+| Usage quota: turns, tokens, cost     | None by default; set per user, team or workspace            | Settled turns per UTC day or calendar month, checked when a prompt is admitted. See [Workspace usage quotas](/sessions/spend-limits#workspace-usage-quotas) |
+| Running sandboxes                    | None by default; set per user and for the whole workspace   | Sandbox launches; a refused launch is reported to the session and the prompt stays queued                                                                   |
 
 ## Boot and sandbox
 

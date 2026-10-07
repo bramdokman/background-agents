@@ -227,6 +227,9 @@ describe("AuditLogSettings", () => {
     ["team.binding_added", "Team channel binding added"],
     ["team.binding_removed", "Team channel binding removed"],
     ["automation.executor_changed", "Automation executor changed"],
+    ["budget.blocked", "Usage quota blocked work"],
+    ["budget.warned", "Usage quota warning"],
+    ["budget.quota_changed", "Usage quota changed"],
   ])("labels %s as an operation in the workspace audit viewer", (action, label) => {
     const article = renderSingle(createEvent("applied", { action }));
     expect(article.getByText(label)).toBeInTheDocument();
