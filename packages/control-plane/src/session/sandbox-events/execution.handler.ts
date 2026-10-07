@@ -42,7 +42,9 @@ export class SandboxExecutionEventHandler {
       "observeExecutionCost" | "deliverTransition"
     >,
     private readonly transaction: <T>(closure: () => T) => T,
-    private readonly offerFallbackTitle: (title: string) => void
+    private readonly offerFallbackTitle: (title: string) => void,
+    /** Project the settled turn into the global usage ledger; replays rewrite the same row. */
+    private readonly recordSettledTurn: (messageId: string, settledAt: number) => void = () => {}
   ) {}
 
   /**
@@ -76,6 +78,7 @@ export class SandboxExecutionEventHandler {
       };
     });
     await this.budget.deliverTransition(budgetTransition);
+    this.recordSettledTurn(event.messageId, context.now);
     if (completion) {
       await this.projectTerminalMessage(
         completion.messageId,
