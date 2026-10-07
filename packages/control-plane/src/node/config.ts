@@ -18,6 +18,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { EnvConfig } from "../types";
 import { parseTeamsEnforcementMode } from "../authorization/teams-enforcement";
+import { parseGitHubTeamSyncIntervalMs } from "../teams/github-team-sync";
 
 /** A source of configuration values, `process.env` in production. */
 export type ConfigSource = Record<string, string | undefined>;
@@ -109,6 +110,7 @@ const ENV_CONFIG_KEYS = {
   EXECUTION_TIMEOUT_MS: true,
   SECRETS_CAP_ENFORCEMENT: true,
   TEAMS_ENFORCEMENT: true,
+  GITHUB_TEAM_SYNC_INTERVAL_MS: true,
   LOG_LEVEL: true,
 } as const satisfies Record<keyof EnvConfig, true>;
 
@@ -174,6 +176,7 @@ export function readEnvConfig(source: ConfigSource): EnvConfig {
     throw new Error(`Missing required configuration: ${missing.join(", ")}`);
   }
   parseTeamsEnforcementMode(config.TEAMS_ENFORCEMENT);
+  parseGitHubTeamSyncIntervalMs(config);
   return config as EnvConfig;
 }
 

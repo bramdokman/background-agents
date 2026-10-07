@@ -27,9 +27,13 @@ import {
   SessionDraftExpiryClient,
 } from "./session/abandoned-draft-sweep";
 import type { SessionRuntimeClient } from "./session/runtime-client";
+import { runGitHubTeamSync } from "./teams/github-team-sync";
 import type { Env } from "./types";
 
-/** Every minute: the automation scheduler's tick and the autofix queue health check. */
+/**
+ * Every minute: the automation scheduler's tick, the autofix queue health
+ * check, and the GitHub team sync, which gates itself on its own interval.
+ */
 export const SCHEDULER_TICK_CRON = "* * * * *";
 
 /** What one run of a scheduled job is given. The host builds it per run. */
@@ -55,9 +59,12 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   {
     name: "scheduler_tick",
     cron: SCHEDULER_TICK_CRON,
-    async run({ env, db, backgroundTasks, log }) {
+    async run({ env, db, backgroundTasks, log, correlation }, nowMs) {
       backgroundTasks.submit(() => checkAutofixQueueHealth(env, log), {
         name: "autofix_queue_health",
+      });
+      backgroundTasks.submit(() => runGitHubTeamSync(env, db, log, nowMs, correlation.request_id), {
+        name: "github_team_sync",
       });
       // The tick runs both the recovery sweep (orphaned/timed-out runs) and
       // processes overdue automations.
