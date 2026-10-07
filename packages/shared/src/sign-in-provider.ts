@@ -1,13 +1,20 @@
 import { z } from "zod";
 
 /** Sign-in providers with executable authentication adapters. */
-export const SIGN_IN_PROVIDERS = ["github", "google"] as const;
+export const SIGN_IN_PROVIDERS = ["github", "google", "microsoft"] as const;
 
 export type SignInProvider = (typeof SIGN_IN_PROVIDERS)[number];
 
+/**
+ * The authority each provider's identities are recorded under. Microsoft
+ * Entra ID issues tokens per tenant (`<authority>/<tenant-id>/v2.0`); the
+ * tenant is deployment configuration, so the shared authority is the stable
+ * part and the admission evidence carries the verified tenant.
+ */
 export const SIGN_IN_PROVIDER_ISSUERS = {
   github: "https://github.com",
   google: "https://accounts.google.com",
+  microsoft: "https://login.microsoftonline.com",
 } as const satisfies Readonly<Record<SignInProvider, string>>;
 
 export function isSignInProvider(provider: string): provider is SignInProvider {

@@ -9,16 +9,23 @@ import {
   SIGN_IN_PROVIDER_ISSUERS,
   type SignInProvider,
 } from "@open-inspect/shared/sign-in-provider";
-import { createUserAuth, type SocialProviderAuthConfig } from "./better-auth";
+import {
+  createUserAuth,
+  type MicrosoftProviderAuthConfig,
+  type SocialProviderAuthConfig,
+} from "./better-auth";
 import { GitHubProviderIdentityResolver } from "./providers/github-identity";
 import { GitHubSignInProfileResolver } from "./providers/github-profile";
 import { GoogleSignInProfileResolver } from "./providers/google-profile";
+import { MicrosoftSignInProfileResolver } from "./providers/microsoft-profile";
 import { SignInClaim } from "./sign-in-claim";
 import { IdentityClaimStore } from "../../db/identity-claim-store";
 import type { SqlDatabase } from "../../db/sql-database";
 import type { Env } from "../../types";
 
 const MINIMUM_SECRET_LENGTH = 32;
+/** Entra tenant ids are GUIDs; the `tid` claim is compared against this form. */
+const TENANT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export class UserAuthConfigurationError extends Error {
   constructor(message: string) {
@@ -69,7 +76,15 @@ interface OAuthCredentials {
   readonly clientSecret: string;
 }
 
-type ProviderCredentials = Readonly<Record<SignInProvider, OAuthCredentials | null>>;
+interface MicrosoftCredentials extends OAuthCredentials {
+  readonly tenantId: string;
+}
+
+interface ProviderCredentials {
+  readonly github: OAuthCredentials | null;
+  readonly google: OAuthCredentials | null;
+  readonly microsoft: MicrosoftCredentials | null;
+}
 
 interface NormalizedUserAuthConfig {
   readonly publicWebOrigin: string;
@@ -95,6 +110,27 @@ function normalizeProviderCredentials(
   return clientId && clientSecret ? { clientId, clientSecret } : null;
 }
 
+/**
+ * The Microsoft provider is single-tenant by construction: the tenant selects
+ * the token endpoints and is the one `tid` admission accepts, so it is
+ * required alongside the client pair rather than defaulting to `common`.
+ */
+function normalizeMicrosoftCredentials(env: Env): MicrosoftCredentials | null {
+  const clientId = env.MICROSOFT_CLIENT_ID?.trim();
+  const clientSecret = env.MICROSOFT_CLIENT_SECRET?.trim();
+  const tenantId = env.MICROSOFT_TENANT_ID?.trim().toLowerCase();
+  if (!clientId && !clientSecret && !tenantId) return null;
+  if (!clientId || !clientSecret || !tenantId) {
+    throw new UserAuthConfigurationError(
+      "MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET and MICROSOFT_TENANT_ID must be configured together"
+    );
+  }
+  if (!TENANT_ID_PATTERN.test(tenantId)) {
+    throw new UserAuthConfigurationError("MICROSOFT_TENANT_ID must be the tenant's GUID");
+  }
+  return { clientId, clientSecret, tenantId };
+}
+
 function normalizeUserAuthConfig(env: Env): NormalizedUserAuthConfig {
   const secret = requireConfig(env.BROWSER_AUTH_SECRET, "BROWSER_AUTH_SECRET");
   if (secret.length < MINIMUM_SECRET_LENGTH) {
@@ -106,10 +142,11 @@ function normalizeUserAuthConfig(env: Env): NormalizedUserAuthConfig {
   const providers: ProviderCredentials = Object.freeze({
     github: normalizeProviderCredentials("github", env.GITHUB_CLIENT_ID, env.GITHUB_CLIENT_SECRET),
     google: normalizeProviderCredentials("google", env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET),
+    microsoft: normalizeMicrosoftCredentials(env),
   });
   if (!SIGN_IN_PROVIDERS.some((provider) => providers[provider] !== null)) {
     throw new UserAuthConfigurationError(
-      "At least one sign-in provider must be configured: set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET, or GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET"
+      "At least one sign-in provider must be configured: set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET, GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET, or MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET and MICROSOFT_TENANT_ID"
     );
   }
 
@@ -122,6 +159,8 @@ function normalizeUserAuthConfig(env: Env): NormalizedUserAuthConfig {
       allowedEmails: parseAdmissionAllowlist(env.ALLOWED_EMAILS),
       allowedEmailDomains: parseAdmissionAllowlist(env.ALLOWED_EMAIL_DOMAINS),
       allowedGitHubOrganizations: parseAdmissionAllowlist(env.ALLOWED_GITHUB_ORGS),
+      microsoftTenantId: providers.microsoft?.tenantId ?? null,
+      allowedMicrosoftDomains: parseAdmissionAllowlist(env.MICROSOFT_ALLOWED_DOMAINS),
       unsafeAllowAllUsers: parseAdmissionBoolean(env.UNSAFE_ALLOW_ALL_USERS),
     },
     providers,
@@ -133,6 +172,8 @@ const UNSUPPORTED_ADMISSION_MESSAGE: Readonly<Record<SignInProvider, string>> = 
     "GitHub sign-in has no compatible admission policy; configure a GitHub-specific or provider-neutral admission rule, or UNSAFE_ALLOW_ALL_USERS",
   google:
     "Google sign-in requires provider-neutral admission through ALLOWED_EMAILS, ALLOWED_EMAIL_DOMAINS, or UNSAFE_ALLOW_ALL_USERS",
+  microsoft:
+    "Microsoft sign-in requires MICROSOFT_ALLOWED_DOMAINS, or provider-neutral admission through ALLOWED_EMAILS, ALLOWED_EMAIL_DOMAINS, or UNSAFE_ALLOW_ALL_USERS",
 };
 
 function requireProviderAdmission(
@@ -184,11 +225,31 @@ function createGoogleAuthConfig(
   };
 }
 
-function withClaim(
+function createMicrosoftAuthConfig(
+  credentials: MicrosoftCredentials | null,
+  admissionPolicy: AdmissionPolicy
+): MicrosoftProviderAuthConfig | undefined {
+  if (!credentials) return undefined;
+  requireProviderAdmission(admissionPolicy, "microsoft");
+
+  const profile = new MicrosoftSignInProfileResolver({
+    clientId: credentials.clientId,
+    tenantId: credentials.tenantId,
+    admissionPolicy,
+  });
+  return {
+    clientId: credentials.clientId,
+    clientSecret: credentials.clientSecret,
+    tenantId: credentials.tenantId,
+    getUserInfo: profile.getUserInfo,
+  };
+}
+
+function withClaim<Config extends SocialProviderAuthConfig>(
   provider: SignInProvider,
   claim: SignInClaim,
-  config: SocialProviderAuthConfig | undefined
-): SocialProviderAuthConfig | undefined {
+  config: Config | undefined
+): Config | undefined {
   if (!config) return undefined;
   return {
     ...config,
@@ -212,6 +273,11 @@ function createUserAuthRuntime(
     claim,
     createGoogleAuthConfig(config.providers.google, admissionPolicy)
   );
+  const microsoft = withClaim(
+    "microsoft",
+    claim,
+    createMicrosoftAuthConfig(config.providers.microsoft, admissionPolicy)
+  );
 
   const auth = createUserAuth({
     database,
@@ -219,6 +285,7 @@ function createUserAuthRuntime(
     secret: config.secret,
     ...(github ? { github } : {}),
     ...(google ? { google } : {}),
+    ...(microsoft ? { microsoft } : {}),
   });
   return {
     auth,

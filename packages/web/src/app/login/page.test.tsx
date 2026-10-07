@@ -35,7 +35,7 @@ expect.extend(matchers);
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.getServerAuthSession.mockResolvedValue(null);
-  mocks.getEnabledSignInProviders.mockResolvedValue(["github", "google"]);
+  mocks.getEnabledSignInProviders.mockResolvedValue(["github", "google", "microsoft"]);
 });
 
 afterEach(cleanup);
@@ -47,6 +47,18 @@ describe("LoginPage", () => {
     expect(screen.getByRole("heading", { name: "Sign in to Open-Inspect" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign in with GitHub" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign in with Google" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign in with Microsoft" })).toBeInTheDocument();
+  });
+
+  it("omits the Microsoft button when the deployment does not enable the provider", async () => {
+    mocks.getEnabledSignInProviders.mockResolvedValue(["github"]);
+
+    render(await LoginPage());
+
+    expect(screen.getByRole("button", { name: "Sign in with GitHub" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Sign in with Microsoft" })
+    ).not.toBeInTheDocument();
   });
 
   it("redirects an authenticated user before querying providers", async () => {

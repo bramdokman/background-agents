@@ -39,11 +39,11 @@ describe("route policy table", () => {
   });
 
   it("publishes the complete canonical route catalog", () => {
-    expect(routes).toHaveLength(232);
+    expect(routes).toHaveLength(233);
 
     const paths = routes.map((route) => route.path);
-    expect(new Set(paths).size).toBe(176);
-    expect(new Set(routes.map((route) => `${route.method}:${route.path}`)).size).toBe(232);
+    expect(new Set(paths).size).toBe(177);
+    expect(new Set(routes.map((route) => `${route.method}:${route.path}`)).size).toBe(233);
     expect(routeFor("POST", "/sessions/session-1/sandbox-memory/search")).toMatchObject({
       authentication: { kind: "sandbox" },
       supportedScmProviders: "all",
@@ -494,6 +494,7 @@ describe("route policy table", () => {
     ["POST", "/image-builds/build-complete", "handler-authenticated"],
     ["POST", "/image-builds/build-failed", "handler-authenticated"],
     ["GET", "/api/auth/get-session", "web-service"],
+    ["GET", "/api/auth/callback/microsoft", "web-service"],
     ["GET", "/internal/auth/sign-in-providers", "web-service"],
     ["GET", "/model-provider-accounts", "user"],
     ["POST", "/model-provider-accounts", "user"],

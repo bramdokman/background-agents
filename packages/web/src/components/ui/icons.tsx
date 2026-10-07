@@ -456,6 +456,18 @@ export function GoogleIcon({ className }: IconProps) {
   );
 }
 
+// Microsoft logo: four fixed-color tiles, per Microsoft's sign-in branding guidelines.
+export function MicrosoftIcon({ className }: IconProps) {
+  return (
+    <svg className={className} data-testid="microsoft-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="#F25022" d="M2 2h9.5v9.5H2z" />
+      <path fill="#7FBA00" d="M12.5 2H22v9.5h-9.5z" />
+      <path fill="#00A4EF" d="M2 12.5h9.5V22H2z" />
+      <path fill="#FFB900" d="M12.5 12.5H22V22h-9.5z" />
+    </svg>
+  );
+}
+
 export function GitPrIcon({ className }: IconProps) {
   return (
     <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
