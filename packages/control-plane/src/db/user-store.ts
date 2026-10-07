@@ -12,7 +12,7 @@ import type { SqlDatabase } from "./sql-database";
 // ── Public types ────────────────────────────────────────────────────
 
 export interface ProviderIdentity {
-  provider: "github" | "slack" | "linear" | "google";
+  provider: "github" | "slack" | "linear" | "google" | "microsoft";
   providerUserId: string;
   providerLogin?: string;
   providerEmail?: string;
@@ -29,7 +29,10 @@ export interface ProviderIdentity {
  * user through Better Auth's implicit-linking gate at their first web
  * sign-in. Every other provider's attribution stays unproven until the
  * sign-in claim mints proof; a new ingress provider must be added here
- * deliberately, never by default.
+ * deliberately, never by default. Microsoft is deliberately absent: its web
+ * sign-in attests the email itself, through the tenant and domain admission
+ * gates (`auth/user/providers/microsoft-profile.ts`), and a Teams ingress
+ * would have to bring the same tenant evidence before it could join.
  */
 const EMAIL_ATTESTING_PROVIDERS: ReadonlySet<ProviderIdentity["provider"]> = new Set([
   "slack",
