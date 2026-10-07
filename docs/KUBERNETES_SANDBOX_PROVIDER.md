@@ -106,7 +106,8 @@ image.
    an overlay that mounts the volume as root with only the `CHOWN` and `FOWNER` capabilities and
    runs `chown 1000:1000 /data && chmod 700 /data`. Sandbox volumes are not affected: `local-path`
    creates them world-writable and the pod's `prepare` step creates the subPaths as the sandbox
-   user.
+   user. Once the host is up, bootstrap the first workspace Owner with the one-shot Job described in
+   [CONTROL_PLANE_CONTAINER.md](./CONTROL_PLANE_CONTAINER.md#bootstrapping-the-workspace-owner).
 4. **Check the cluster.** Nothing in the provider can verify these, so check them once per cluster:
    - Secrets are encrypted at rest. Each session's Secret holds its sandbox token and the user's and
      repository's secrets. On k3s, `k3s secrets-encrypt status` must report `Enabled`; enabling it
