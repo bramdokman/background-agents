@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createTestEnv } from "../router.test-support";
 import type { Env } from "../types";
-import { createSandboxProviderFromEnv } from "./provider-factory";
+import { createSandboxProviderFromEnv, parseSandboxEnv } from "./provider-factory";
 
 function createEnv(overrides: Partial<Env>): Env {
   return createTestEnv({ TOKEN_ENCRYPTION_KEY: "test-token-key", ...overrides });
@@ -101,6 +101,22 @@ describe("createSandboxProviderFromEnv", () => {
       KUBERNETES_SANDBOX_IMAGE: "registry.test/sandbox@sha256:abc",
       KUBERNETES_API_TOKEN: "test-token",
     };
+
+    it("parses KUBERNETES_SANDBOX_ENV and rejects bad names without echoing values", () => {
+      expect(parseSandboxEnv(undefined)).toEqual({});
+      expect(parseSandboxEnv('{"ZHIPU_API_KEY":"k"}')).toEqual({ ZHIPU_API_KEY: "k" });
+      expect(() => parseSandboxEnv("ZHIPU_API_KEY=k")).toThrow("must be a JSON object");
+      expect(() => parseSandboxEnv('["k"]')).toThrow("must be a JSON object");
+      expect(() => parseSandboxEnv('{"SANDBOX_AUTH_TOKEN":"secret-value"}')).toThrow("reserved");
+      expect(() => parseSandboxEnv('{"KEY":1}')).toThrow("must be a string");
+      expect(() => parseSandboxEnv('{"bad-name":"v"}')).toThrow("must match");
+      expect(() =>
+        createSandboxProviderFromEnv(
+          createEnv({ ...kubernetes, KUBERNETES_SANDBOX_ENV: "not json" }),
+          "kubernetes"
+        )
+      ).toThrow("KUBERNETES_SANDBOX_ENV");
+    });
 
     it("builds the provider with the sandboxing runtime by default", () => {
       const provider = createSandboxProviderFromEnv(createEnv(kubernetes), "kubernetes");

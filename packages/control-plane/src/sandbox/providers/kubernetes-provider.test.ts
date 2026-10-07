@@ -143,6 +143,14 @@ describe("createSandbox", () => {
     );
   });
 
+  it("adds the deployment-wide sandbox env under user secrets", async () => {
+    const { api, provider } = setup({
+      sandboxEnv: { ZHIPU_API_KEY: "deployment-key", USER_SECRET: "deployment" },
+    });
+    await provider.createSandbox(baseCreateConfig);
+    expect(secretEnv(api)).toMatchObject({ ZHIPU_API_KEY: "deployment-key", USER_SECRET: "u1" });
+  });
+
   it("points sandboxes at the in-cluster control plane through the proxy exemption", async () => {
     const { api, provider } = setup({
       sandboxControlPlaneUrl: "https://10.43.250.21:8443",

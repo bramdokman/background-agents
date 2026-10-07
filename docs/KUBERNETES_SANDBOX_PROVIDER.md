@@ -131,23 +131,24 @@ exposes services; sandboxes never use that URL when `KUBERNETES_SANDBOX_CONTROL_
 
 ### Configuration
 
-| Variable                               | Default                          | Notes                                                                                                            |
-| -------------------------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `KUBERNETES_NAMESPACE`                 | required                         | The sandbox namespace. Must not be the control plane's own (refused at startup).                                 |
-| `KUBERNETES_SANDBOX_IMAGE`             | required                         | Pin a digest; the admission policy compares it exactly.                                                          |
-| `KUBERNETES_RUNTIME_CLASS`             | `gvisor`                         | `kata` (or your Kata class) works the same way.                                                                  |
-| `KUBERNETES_ALLOW_UNSANDBOXED_RUNTIME` | `false`                          | `true` permits an empty runtime class. Throwaway test clusters only.                                             |
-| `KUBERNETES_STORAGE_CLASS`             | cluster default                  |                                                                                                                  |
-| `KUBERNETES_WORKSPACE_SIZE`            | `20Gi`                           | A request: see [Disk](#disk).                                                                                    |
-| `KUBERNETES_NODE_SELECTOR`             | none                             | `key=value,key=value`.                                                                                           |
-| `KUBERNETES_POD_START_TIMEOUT_MS`      | 120000                           | How long create and resume wait for the container to run. Must stay inside the control plane's connect watchdog. |
-| `KUBERNETES_EGRESS_PROXY_URL`          | none                             | Injected as `HTTPS_PROXY`/`HTTP_PROXY`. An IP-literal host makes sandboxes DNS-less.                             |
-| `KUBERNETES_REQUIRE_NETWORK_POLICY`    | `true`                           | The egress preflight below.                                                                                      |
-| `KUBERNETES_EGRESS_PROBE_HOST`         | `1.1.1.1`                        | An IP address a pod must fail to reach directly before its sandbox starts (see Egress below).                    |
-| `KUBERNETES_SANDBOX_CONTROL_PLANE_URL` | `WORKER_URL`                     | An in-cluster `https` URL for sandboxes; added to `NO_PROXY`.                                                    |
-| `KUBERNETES_SANDBOX_CA_CERT`           | none                             | PEM appended to the sandbox's trust store (`SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `GIT_SSL_CAINFO`).            |
-| `KUBERNETES_API_URL`                   | `https://kubernetes.default.svc` |                                                                                                                  |
-| `KUBERNETES_API_TOKEN`                 | none                             | A static token, for running the provider outside a pod (tests). The pod's own token is used otherwise.           |
+| Variable                               | Default                          | Notes                                                                                                                         |
+| -------------------------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `KUBERNETES_NAMESPACE`                 | required                         | The sandbox namespace. Must not be the control plane's own (refused at startup).                                              |
+| `KUBERNETES_SANDBOX_IMAGE`             | required                         | Pin a digest; the admission policy compares it exactly.                                                                       |
+| `KUBERNETES_RUNTIME_CLASS`             | `gvisor`                         | `kata` (or your Kata class) works the same way.                                                                               |
+| `KUBERNETES_ALLOW_UNSANDBOXED_RUNTIME` | `false`                          | `true` permits an empty runtime class. Throwaway test clusters only.                                                          |
+| `KUBERNETES_STORAGE_CLASS`             | cluster default                  |                                                                                                                               |
+| `KUBERNETES_WORKSPACE_SIZE`            | `20Gi`                           | A request: see [Disk](#disk).                                                                                                 |
+| `KUBERNETES_NODE_SELECTOR`             | none                             | `key=value,key=value`.                                                                                                        |
+| `KUBERNETES_POD_START_TIMEOUT_MS`      | 120000                           | How long create and resume wait for the container to run. Must stay inside the control plane's connect watchdog.              |
+| `KUBERNETES_EGRESS_PROXY_URL`          | none                             | Injected as `HTTPS_PROXY`/`HTTP_PROXY`. An IP-literal host makes sandboxes DNS-less.                                          |
+| `KUBERNETES_REQUIRE_NETWORK_POLICY`    | `true`                           | The egress preflight below.                                                                                                   |
+| `KUBERNETES_EGRESS_PROBE_HOST`         | `1.1.1.1`                        | An IP address a pod must fail to reach directly before its sandbox starts (see Egress below).                                 |
+| `KUBERNETES_SANDBOX_CONTROL_PLANE_URL` | `WORKER_URL`                     | An in-cluster `https` URL for sandboxes; added to `NO_PROXY`.                                                                 |
+| `KUBERNETES_SANDBOX_CA_CERT`           | none                             | PEM appended to the sandbox's trust store (`SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `GIT_SSL_CAINFO`).                         |
+| `KUBERNETES_SANDBOX_ENV`               | none                             | A JSON object of env every sandbox gets (a deployment-wide model key); user secrets override it. Readable inside the sandbox. |
+| `KUBERNETES_API_URL`                   | `https://kubernetes.default.svc` |                                                                                                                               |
+| `KUBERNETES_API_TOKEN`                 | none                             | A static token, for running the provider outside a pod (tests). The pod's own token is used otherwise.                        |
 
 Per-session CPU and memory (Settings > Sandbox) map to pod requests and limits; the defaults are
 `DEFAULT_KUBERNETES_*` in `packages/shared/src/types/integrations.ts`.

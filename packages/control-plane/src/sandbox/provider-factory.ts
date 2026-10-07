@@ -34,6 +34,7 @@ import { createVercelSandboxClient } from "./providers/vercel/client";
 import { createVercelProvider, type VercelSandboxProvider } from "./providers/vercel/provider";
 import { resolveScmProviderFromEnv } from "../source-control";
 import type { Env } from "../types";
+import { validateKey } from "../db/secrets-validation";
 
 function createModalProviderFromEnv(env: Env, backend: "modal" | "modal-vm"): ModalSandboxProvider {
   if (!env.MODAL_API_SECRET || !env.MODAL_WORKSPACE) {
@@ -251,6 +252,7 @@ function createKubernetesProviderFromEnv(env: Env): KubernetesSandboxProvider {
     egressProxyUrl: env.KUBERNETES_EGRESS_PROXY_URL?.trim() || undefined,
     sandboxControlPlaneUrl,
     sandboxCaCert: env.KUBERNETES_SANDBOX_CA_CERT?.trim() || undefined,
+    sandboxEnv: parseSandboxEnv(env.KUBERNETES_SANDBOX_ENV),
     requireNetworkPolicy: parseBooleanEnv(
       "KUBERNETES_REQUIRE_NETWORK_POLICY",
       env.KUBERNETES_REQUIRE_NETWORK_POLICY,
@@ -272,6 +274,39 @@ function parseEgressProbeHost(value: string | undefined): string {
     throw new Error("KUBERNETES_EGRESS_PROBE_HOST must be an IP address");
   }
   return host;
+}
+
+/**
+ * `KUBERNETES_SANDBOX_ENV`: a JSON object of string values every sandbox gets,
+ * such as a deployment-wide model key (the Kubernetes counterpart of the
+ * platform `ANTHROPIC_API_KEY` Modal and OpenComputer pass). Names follow the
+ * rules for repository secrets, so a reserved runtime variable cannot be set
+ * here. Errors never echo a value.
+ */
+export function parseSandboxEnv(value: string | undefined): Record<string, string> {
+  if (!value?.trim()) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error("KUBERNETES_SANDBOX_ENV must be a JSON object of string values");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("KUBERNETES_SANDBOX_ENV must be a JSON object of string values");
+  }
+  const sandboxEnv: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(parsed)) {
+    try {
+      validateKey(key);
+    } catch (error) {
+      throw new Error(`KUBERNETES_SANDBOX_ENV: ${(error as Error).message}`);
+    }
+    if (typeof entry !== "string") {
+      throw new Error(`KUBERNETES_SANDBOX_ENV: the value of ${key} must be a string`);
+    }
+    sandboxEnv[key] = entry;
+  }
+  return sandboxEnv;
 }
 
 /** `key=value,key=value`, as `kubectl --selector` writes equality selectors. */

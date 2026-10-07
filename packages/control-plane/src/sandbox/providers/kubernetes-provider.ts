@@ -141,6 +141,8 @@ export interface KubernetesProviderConfig {
    * sandbox starts (`KUBERNETES_EGRESS_PROBE_HOST`); DEFAULT_EGRESS_PROBE_HOST when unset.
    */
   egressProbeHost?: string;
+  /** Deployment-wide env for every sandbox (`KUBERNETES_SANDBOX_ENV`); user secrets override it. */
+  sandboxEnv?: Record<string, string>;
   /** Injected in tests. */
   pollIntervalMs?: number;
   sleep?: (ms: number) => Promise<void>;
@@ -643,6 +645,7 @@ export class KubernetesSandboxProvider implements SandboxProvider {
         scmIdentity: scmCloneIdentity(this.config.scmProvider),
         portPlan,
         emitDisabledTerminalEnv: true,
+        baseEnvVars: { ...this.config.sandboxEnv, ...config.userEnvVars },
       }
     );
     // Every boot marker is stated (Daytona parity): the runtime reads each as
