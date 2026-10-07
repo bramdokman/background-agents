@@ -88,6 +88,9 @@ const OPERATION_LABELS: Record<AuditOperationAction, string> = {
   "team.secret_deleted": "Team secret deleted",
   "team.binding_added": "Team channel binding added",
   "team.binding_removed": "Team channel binding removed",
+  "team.github_link_added": "Team GitHub team linked",
+  "team.github_link_removed": "Team GitHub team unlinked",
+  "team.github_sync_changed": "Team membership synced from GitHub",
   "automation.executor_changed": "Automation executor changed",
 };
 
