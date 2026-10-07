@@ -429,8 +429,8 @@ See [Automations](AUTOMATIONS.md) for trigger setup and run behavior.
 
 ## Bots and Integrations
 
-Slack, GitHub, and Linear integrations act on behalf of a workspace user when they handle a user
-request. Their effective access is limited by both:
+Slack, GitHub, Linear, and Microsoft Teams integrations act on behalf of a workspace user when they
+handle a user request. Their effective access is limited by both:
 
 - The acting user's current role
 - The integration's fixed set of allowed operations
@@ -460,6 +460,31 @@ thread without session content, while a follow-up refused for one user does not 
 Linear withholds completion results if the issue has moved to another Linear team. Its actorless
 reads, including completion reads, otherwise follow `TEAMS_ENFORCEMENT`: full Team-visibility
 isolation requires `on`. See [Slack](integrations/SLACK.md) and [Linear](integrations/LINEAR.md).
+
+### Microsoft Teams Bindings and Actors
+
+The control plane carries what a Microsoft Teams bot needs; the bot itself is a separate service.
+
+- **Binding provider `msteams`.** A Teams channel binds to a team in **Teams > Channels** like a
+  Slack channel does; its external id is the channel id from the channel's link
+  (`19:...@thread.tacv2`). The bot reads bindings at `GET /channel-bindings/msteams/:externalId`.
+  Teams has no integration settings yet, so its unbound-channel policy is fixed to `reject`: a
+  channel no team has bound starts no session.
+- **Actor namespace `microsoft`.** The bot asserts `microsoft:<objectId>`, the Entra object id that
+  [Microsoft Entra ID sign-in](#microsoft-entra-id) stores as the identity subject (Teams surfaces
+  it as `aadObjectId`). Unlike Slack, GitHub and Linear actors, a Microsoft actor is never enrolled
+  by the bot: only a user who has signed in once on the web resolves, and an unknown object id is
+  refused with 403 `service_actor_not_enrolled`, writing no user or identity. The denial is audited
+  as `authorization.request_denied` with the asserted actor in its metadata.
+- **Service `teams-bot`.** Its sig1 verification key is `SERVICE_AUTH_SECRET_TEAMS_BOT`. Its
+  permission ceiling matches the Linear bot's: repositories and environments (read, use), sessions
+  (create, read, collaborate, lifecycle), integrations and skills (read), and no sandbox access.
+  Sessions it starts carry `spawnSource: "teams-bot"`.
+- **Callbacks.** Prompts from the bot carry `source: "msteams"` and an `msteams` callback context
+  (conversation, service URL, reply activity, channel). Completion and tool-call callbacks go to the
+  Teams bot, signed with its key, and bypass the Slack publication gate. On the Node host the bot is
+  reached by `TEAMS_BOT_URL` (`SLACK_BOT_URL` and `LINEAR_BOT_URL` serve the other bots the same
+  way); on Cloudflare the bots are service bindings.
 
 ### GitHub Routing
 
