@@ -56,6 +56,8 @@ import { McpServerStore } from "../db/mcp-servers";
 import { UserStore } from "../db/user-store";
 import { IntegrationSettingsStore, resolveSlackSettings } from "../db/integration-settings";
 import { SessionIndexStore } from "../db/session-index";
+import { UsageLedgerStore } from "../db/usage-ledger";
+import { UsageQuotaService } from "../authorization/usage-quotas";
 import { TeamMembershipStore } from "../db/team-memberships";
 import { TeamChannelBindingStore } from "../db/team-channel-bindings";
 import { SessionCollaboratorStore } from "../db/session-collaborators";
@@ -113,6 +115,7 @@ import { SandboxShutdownCoordinator } from "./sandbox-shutdown";
 import { SandboxShutdownRepository } from "./sandbox-shutdown-repository";
 import { SandboxArtifactEventHandler } from "./sandbox-events/artifact.handler";
 import { SandboxExecutionEventHandler } from "./sandbox-events/execution.handler";
+import { resolveSettledTurn } from "./settled-turn";
 import { SessionSandboxEventProcessor } from "./sandbox-events/processor";
 import { SandboxRuntimeEventHandler } from "./sandbox-events/runtime.handler";
 import { SandboxStreamingEventHandler } from "./sandbox-events/streaming.handler";
@@ -380,6 +383,36 @@ export function createSessionRuntime(platform: SessionPlatform, env: Env): Sessi
       terminalMessageCompletedAt: completedAt,
     });
 
+  // Usage metering: one ledger row per settled turn, written from the same
+  // event that settles the turn's cost. The write is idempotent on the
+  // message id, so a replayed completion changes nothing; a failed write is
+  // logged and the turn stays unmetered rather than failing settlement. The
+  // same task keeps the session's running-sandbox slot current, since a turn
+  // settling proves the sandbox is live.
+  const usageLedger = new UsageLedgerStore(db);
+  const usageQuotas = new UsageQuotaService(db);
+  const recordSettledTurn = (messageId: string, settledAt: number): void => {
+    const turn = resolveSettledTurn(
+      {
+        getSessionId: getPublicSessionId,
+        session: sessionCoreRepository,
+        messages: messageRepository,
+        participants: participantRepository,
+        usage: usageRepository,
+      },
+      messageId,
+      settledAt
+    );
+    if (!turn) return;
+    backgroundTasks.submit(
+      async () => {
+        await usageLedger.recordTurn(turn);
+        await usageQuotas.assertSandboxRunning(turn.sessionId, settledAt + getExecutionTimeoutMs());
+      },
+      { name: "usage_ledger.record_turn", context: { message_id: messageId } }
+    );
+  };
+
   const participantService = new ParticipantService({
     repository: participantRepository,
     getProcessingMessageAuthor: () => messageRepository.getProcessingMessageAuthor(),
@@ -617,7 +650,8 @@ export function createSessionRuntime(platform: SessionPlatform, env: Env): Sessi
     transaction,
     (title) => {
       titleService.applySessionTitleUpdate(title, { onlyIfUnset: true });
-    }
+    },
+    recordSettledTurn
   );
   const runtimeEventHandler = new SandboxRuntimeEventHandler(
     sessionCoreRepository,

@@ -37,6 +37,11 @@ const totalsRowSchema = z.object({
   total_tokens: z.number().nullable(),
 });
 
+const messageTotalsRowSchema = z.object({
+  input_tokens: z.number().nullable(),
+  output_tokens: z.number().nullable(),
+});
+
 const modelRowSchema = z.object({
   model: z.string().nullable(),
   harness: harnessIdSchema.nullable(),
@@ -125,6 +130,25 @@ export class UsageRepository {
         event.stepId ?? null
       );
     });
+  }
+
+  /** Input and output tokens recorded for one message, for the usage ledger. */
+  getMessageTokenTotals(messageId: string): {
+    inputTokens: number | null;
+    outputTokens: number | null;
+  } {
+    const parsed = messageTotalsRowSchema.safeParse(
+      this.sql
+        .exec(
+          `SELECT SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens
+           FROM step_usage WHERE message_id = ?`,
+          messageId
+        )
+        .one()
+    );
+    if (!parsed.success)
+      throw new SessionStorageIntegrityError("Malformed message usage totals row");
+    return { inputTokens: parsed.data.input_tokens, outputTokens: parsed.data.output_tokens };
   }
 
   getSessionTotals(): SessionUsageTotals {
