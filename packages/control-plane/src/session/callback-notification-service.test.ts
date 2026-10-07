@@ -26,6 +26,16 @@ const LINEAR_CALLBACK_CONTEXT = {
   model: "anthropic/claude-haiku-4-5",
 };
 
+const MSTEAMS_CALLBACK_CONTEXT = {
+  source: "msteams",
+  conversationId: "19:a1b2c3d4e5f6@thread.tacv2;messageid=1700000000000",
+  serviceUrl: "https://smba.trafficmanager.net/emea/",
+  replyToId: "1700000000001",
+  channelId: "19:a1b2c3d4e5f6@thread.tacv2",
+  repoFullName: "acme/web-app",
+  model: "anthropic/claude-haiku-4-5",
+};
+
 const SLACK_CALLBACK_CONTEXT = {
   channel: "C123",
   threadTs: "1234.5678",
@@ -69,6 +79,7 @@ function createTestHarness(overrides?: {
 
   const slackBot = createMockFetcher();
   const linearBot = createMockFetcher();
+  const teamsBot = createMockFetcher();
   const sleep = vi.fn(async () => {});
   const slackPostScope = {
     getSession: vi.fn<SlackPostScope["getSession"]>().mockResolvedValue({
@@ -83,8 +94,10 @@ function createTestHarness(overrides?: {
   const env: CallbackServiceEnv = {
     SERVICE_AUTH_SECRET_SLACK_BOT: "test-secret",
     SERVICE_AUTH_SECRET_LINEAR_BOT: "test-secret",
+    SERVICE_AUTH_SECRET_TEAMS_BOT: "teams-secret",
     SLACK_BOT: slackBot,
     LINEAR_BOT: linearBot,
+    TEAMS_BOT: teamsBot,
     ...overrides?.env,
   };
 
@@ -106,6 +119,7 @@ function createTestHarness(overrides?: {
     env,
     slackBot,
     linearBot,
+    teamsBot,
     sleep,
     slackPostScope,
   };
@@ -680,6 +694,54 @@ describe("CallbackNotificationService", () => {
       expect(body.context.issueId).toBe("issue-1");
       expect(linearCompletionCallbackSchema.safeParse(body).success).toBe(true);
       expect(await verifyCallbackSignature(body, "test-secret")).toBe(true);
+    });
+
+    it("routes to TEAMS_BOT for the msteams source, signed with the Teams key and ungated by Slack", async () => {
+      vi.mocked(harness.repository.getMessageCallbackContext).mockReturnValue({
+        callback_context: JSON.stringify(MSTEAMS_CALLBACK_CONTEXT),
+        source: "msteams",
+      });
+      vi.mocked(harness.teamsBot.fetch).mockResolvedValue(new Response("ok", { status: 200 }));
+
+      await harness.service.notifyComplete("msg-1", true);
+
+      expect(harness.teamsBot.fetch).toHaveBeenCalledTimes(1);
+      expect(harness.slackBot.fetch).not.toHaveBeenCalled();
+      expect(harness.linearBot.fetch).not.toHaveBeenCalled();
+      expect(harness.slackPostScope.getSession).not.toHaveBeenCalled();
+      expect(harness.slackPostScope.getChannelBinding).not.toHaveBeenCalled();
+      const [url, init] = harness.teamsBot.fetch.mock.calls[0]!;
+      expect(url).toBe("https://internal/callbacks/complete");
+      expect(init?.method).toBe("POST");
+      const { signature, ...payload } = JSON.parse(String(init?.body));
+      expect(payload).toEqual({
+        sessionId: "session-123",
+        messageId: "msg-1",
+        success: true,
+        timestamp: expect.any(Number),
+        context: MSTEAMS_CALLBACK_CONTEXT,
+      });
+      expect(await verifyCallbackSignature({ ...payload, signature }, "teams-secret")).toBe(true);
+      expect(await verifyCallbackSignature({ ...payload, signature }, "test-secret")).toBe(false);
+    });
+
+    it("skips an msteams completion without a Teams port rather than falling back to Slack", async () => {
+      harness = createTestHarness({ env: { TEAMS_BOT: undefined } });
+      vi.mocked(harness.repository.getMessageCallbackContext).mockReturnValue({
+        callback_context: JSON.stringify(MSTEAMS_CALLBACK_CONTEXT),
+        source: "msteams",
+      });
+
+      await harness.service.notifyComplete("msg-1", true);
+
+      expect(harness.slackBot.fetch).not.toHaveBeenCalled();
+      expect(harness.linearBot.fetch).not.toHaveBeenCalled();
+      const terminalEvent = vi
+        .mocked(harness.log.info)
+        .mock.calls.find(([event]) => event === "callback.complete_delivery");
+      expect(terminalEvent?.[1]).toEqual(
+        expect.objectContaining({ outcome: "rejected", reject_reason: "no_binding" })
+      );
     });
 
     it("preserves signed Linear completion retries without Slack authority reads", async () => {

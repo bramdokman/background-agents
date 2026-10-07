@@ -40,8 +40,10 @@ export interface CallbackServiceEnv {
   // destination's own.
   SERVICE_AUTH_SECRET_SLACK_BOT?: string;
   SERVICE_AUTH_SECRET_LINEAR_BOT?: string;
+  SERVICE_AUTH_SECRET_TEAMS_BOT?: string;
   SLACK_BOT?: FetchClient;
   LINEAR_BOT?: FetchClient;
+  TEAMS_BOT?: FetchClient;
 }
 
 export type AutomationRunCompletionHandler = (completion: AutomationRunCompletion) => Promise<void>;
@@ -225,19 +227,25 @@ export class CallbackNotificationService {
    * Where a non-automation callback goes and which key signs it — one
    * decision, so destination and signing key cannot diverge (the CP signs
    * with the DESTINATION bot's secret). Automation callbacks
-   * are routed to the automation scheduler before this is consulted. Non-linear
-   * sources default to the slack bot for backward compatibility (web
-   * sources, etc.).
+   * are routed to the automation scheduler before this is consulted. Linear
+   * and Teams sources go to their bots; every other source defaults to the
+   * slack bot for backward compatibility (web sources, etc.), and only that
+   * destination is subject to the Slack publication gate.
    */
   private resolveCallbackRoute(source: string | null): {
+    destination: CallbackDestination;
     binding: FetchClient | undefined;
     secret: string | undefined;
   } {
-    const destination: CallbackDestination = source === "linear" ? "linear-bot" : "slack-bot";
-    return {
-      binding: destination === "linear-bot" ? this.env.LINEAR_BOT : this.env.SLACK_BOT,
-      secret: callbackSigningSecret(this.env, destination),
-    };
+    const destination: CallbackDestination =
+      source === "linear" ? "linear-bot" : source === "msteams" ? "teams-bot" : "slack-bot";
+    const binding =
+      destination === "linear-bot"
+        ? this.env.LINEAR_BOT
+        : destination === "teams-bot"
+          ? this.env.TEAMS_BOT
+          : this.env.SLACK_BOT;
+    return { destination, binding, secret: callbackSigningSecret(this.env, destination) };
   }
 
   /** Notify the Linear worker after a Linear message is dispatched to a live sandbox. */
@@ -327,7 +335,7 @@ export class CallbackNotificationService {
         return;
       }
 
-      const { binding, secret } = this.resolveCallbackRoute(source);
+      const { destination, binding, secret } = this.resolveCallbackRoute(source);
       if (!secret) {
         result.rejectReason = "no_secret";
         return;
@@ -360,9 +368,9 @@ export class CallbackNotificationService {
         async (signal) => {
           const denial =
             rejectReason ??
-            (source === "linear"
-              ? null
-              : await this.slackPostDenial(callbackSessionId, rawContext));
+            (destination === "slack-bot"
+              ? await this.slackPostDenial(callbackSessionId, rawContext)
+              : null);
           // D1 reads cannot be canceled; an expired attempt must not reach the wire.
           signal.throwIfAborted();
           // The bot can tombstone the thread even when closure delivery fails.
@@ -697,7 +705,7 @@ export class CallbackNotificationService {
       return;
     }
 
-    const { binding, secret } = this.resolveCallbackRoute(source);
+    const { destination, binding, secret } = this.resolveCallbackRoute(source);
     if (!secret) {
       this.log.debug("callback.tool_call", {
         message_id: messageId,
@@ -748,7 +756,7 @@ export class CallbackNotificationService {
     if (now - this._lastToolCallCallbackTs < 3000) return;
     this._lastToolCallCallbackTs = now;
 
-    if (source !== "linear") {
+    if (destination === "slack-bot") {
       try {
         const denial = await this.slackPostDenial(sessionId, rawContext);
         if (denial) {

@@ -600,12 +600,29 @@ describe("boundary schemas", () => {
           automationName: "Nightly sweep",
         }).success
       ).toBe(true);
+      expect(
+        callbackContextSchema.safeParse({
+          source: "msteams",
+          conversationId: "19:a1b2c3d4e5f6@thread.tacv2;messageid=1700000000000",
+          serviceUrl: "https://smba.trafficmanager.net/emea/",
+          replyToId: "1700000000001",
+          channelId: "19:a1b2c3d4e5f6@thread.tacv2",
+          model: "anthropic/claude-sonnet-4-6",
+        }).success
+      ).toBe(true);
     });
 
     it("rejects malformed or partial callback contexts", () => {
       expect(callbackContextSchema.safeParse({ source: "slack", channel: "C123" }).success).toBe(
         false
       );
+      expect(
+        callbackContextSchema.safeParse({
+          source: "msteams",
+          conversationId: "19:a1b2c3d4e5f6@thread.tacv2;messageid=1700000000000",
+          model: "anthropic/claude-sonnet-4-6",
+        }).success
+      ).toBe(false);
       expect(
         callbackContextSchema.safeParse({
           source: "automation",

@@ -128,6 +128,24 @@ export const linearToolCallCallbackSchema = linearToolCallCallbackPayloadSchema.
 
 export type LinearToolCallCallback = z.infer<typeof linearToolCallCallbackSchema>;
 
+/**
+ * Where a Teams bot renders a turn's progress and completion: the Bot
+ * Framework conversation and service URL it posts to, and the activity it
+ * edits. `channelId` is the Teams channel (the binding's external id) when
+ * the conversation is a channel thread; group and personal chats have none.
+ */
+export const msteamsCallbackContextSchema = z.object({
+  source: z.literal("msteams"),
+  conversationId: nonEmptyStringSchema,
+  serviceUrl: nonEmptyStringSchema,
+  replyToId: nonEmptyStringSchema.optional(),
+  channelId: nonEmptyStringSchema.optional(),
+  repoFullName: nonEmptyStringSchema.optional(),
+  model: nonEmptyStringSchema,
+});
+
+export type MsTeamsCallbackContext = z.infer<typeof msteamsCallbackContextSchema>;
+
 export const automationCallbackContextSchema = z.object({
   source: z.literal("automation"),
   automationId: z.string(),
@@ -140,6 +158,7 @@ export type AutomationCallbackContext = z.infer<typeof automationCallbackContext
 export const callbackContextSchema = z.union([
   slackCallbackContextSchema,
   linearCallbackContextSchema,
+  msteamsCallbackContextSchema,
   automationCallbackContextSchema,
 ]);
 

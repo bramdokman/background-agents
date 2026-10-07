@@ -1,4 +1,7 @@
+import { once } from "node:events";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Hono } from "hono";
@@ -43,6 +46,34 @@ function cacheWritingRoute(): Hono<ControlPlaneHonoEnv>[] {
     async (c) => {
       await c.env.REPOS_CACHE.put("host-test", "written");
       return Response.json({ written: true });
+    }
+  );
+  return [routes];
+}
+
+/** A public route that reports which bot ports exist and posts one callback through TEAMS_BOT. */
+function botProbeRoute(): Hono<ControlPlaneHonoEnv>[] {
+  const routes = new Hono<ControlPlaneHonoEnv>();
+  routes.get(
+    "/bot-probe",
+    admit({
+      authentication: { kind: "public" },
+      supportedScmProviders: "all",
+      authorization: NO_AUTHORIZATION,
+    }),
+    async (c) => {
+      const delivered = await c.env.TEAMS_BOT?.fetch(
+        "https://internal/callbacks/complete?attempt=1",
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }
+      );
+      return Response.json({
+        ports: {
+          SLACK_BOT: c.env.SLACK_BOT !== undefined,
+          LINEAR_BOT: c.env.LINEAR_BOT !== undefined,
+          TEAMS_BOT: c.env.TEAMS_BOT !== undefined,
+        },
+        status: delivered?.status ?? null,
+      });
     }
   );
   return [routes];
@@ -115,6 +146,31 @@ describe("startNodeHost", () => {
     host = null;
     rmSync(dataDir, { recursive: true, force: true });
     dataDir = undefined as unknown as string;
+  });
+
+  it("reaches a bot by its configured URL and supplies no port for an unconfigured one", async () => {
+    const received: string[] = [];
+    const bot = createServer((request, response) => {
+      received.push(`${request.method} ${request.url}`);
+      response.end("ok");
+    });
+    bot.listen(0, "127.0.0.1");
+    await once(bot, "listening");
+    const botPort = (bot.address() as AddressInfo).port;
+    try {
+      host = await start({
+        routes: botProbeRoute(),
+        botClients: { TEAMS_BOT: new URL(`http://127.0.0.1:${botPort}/teams`) },
+      });
+      const probe = await fetch(`http://127.0.0.1:${host.address.port}/bot-probe`);
+      expect(await probe.json()).toEqual({
+        ports: { SLACK_BOT: false, LINEAR_BOT: false, TEAMS_BOT: true },
+        status: 200,
+      });
+      expect(received).toEqual(["POST /teams/callbacks/complete?attempt=1"]);
+    } finally {
+      bot.close();
+    }
   });
 
   it("boots over the migrated global store and answers the health check and the route table", async () => {

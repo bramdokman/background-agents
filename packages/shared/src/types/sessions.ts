@@ -56,6 +56,7 @@ export const messageSourceSchema = z.enum([
   "web",
   "slack",
   "linear",
+  "msteams",
   "extension",
   "github",
   "automation",

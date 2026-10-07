@@ -5,6 +5,7 @@
  */
 
 import { createLogger, parseLogLevel } from "../logger";
+import { readBotClientConfig } from "./bot-clients";
 import { readEnvConfig, readNodeHostSettings } from "./config";
 import { startNodeHost } from "./host";
 import { readS3ObjectStorageConfig } from "./s3-object-storage";
@@ -18,7 +19,8 @@ async function main(): Promise<void> {
   const settings = readNodeHostSettings(process.env);
   const config = readEnvConfig(process.env);
   const objectStorage = readS3ObjectStorageConfig(process.env);
-  const host = await startNodeHost({ config, settings, objectStorage });
+  const botClients = readBotClientConfig(process.env);
+  const host = await startNodeHost({ config, settings, objectStorage, botClients });
 
   const stop = (signal: NodeJS.Signals): void => {
     log.info("node_host.signal", { event: "node_host.signal", signal });

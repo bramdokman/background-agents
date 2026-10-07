@@ -326,7 +326,9 @@ SMOKE_APP_PORT=8798 SMOKE_OBJECT_STORE_PORT=9010 SMOKE_FAKE_MODAL_PORT=9910 \
 ## Not yet available on the container
 
 - The GitHub autofix queue and the Slack and Linear bots: the bots remain Cloudflare Workers and
-  reach a container-hosted control plane over HTTPS once that transport lands.
+  reach a container-hosted control plane over HTTPS once that transport lands. The other direction
+  exists: the host delivers callbacks to a bot reachable by URL (`SLACK_BOT_URL`, `LINEAR_BOT_URL`,
+  `TEAMS_BOT_URL` in `.env.example`), signed with that bot's `SERVICE_AUTH_SECRET_*`.
 
 ## Building the image alone
 

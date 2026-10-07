@@ -46,6 +46,7 @@ import { createSessionRuntimeClient } from "../session/runtime-client";
 import type { Env, EnvConfig, Platform } from "../types";
 import { openAuditExportSink } from "./audit-export";
 import { createNodeBackgroundTasks, settlesWithin } from "./background-tasks";
+import { createBotClients, type BotClientConfig } from "./bot-clients";
 import { openNodeCacheDatabase } from "./cache-database";
 import { GLOBAL_STORE_FILE, type NodeHostSettings } from "./config";
 import { markCleanShutdown, recoverSessionDeadlines } from "./crash-recovery";
@@ -68,6 +69,8 @@ export interface NodeHostOptions {
   config: EnvConfig;
   settings: NodeHostSettings;
   objectStorage: S3ObjectStorageConfig;
+  /** The bots callbacks are delivered to, by base URL; an absent bot's callbacks are skipped. */
+  botClients?: BotClientConfig;
   /** The route modules to serve: the production catalog unless a test supplies its own. */
   routes?: readonly RouteModule[];
 }
@@ -198,6 +201,8 @@ async function boot(
     SESSION: createNodeSessionRuntimeDispatch(registry),
     REPOS_CACHE: new SqlCacheStore(cacheDb),
     MEDIA_BUCKET: createS3ObjectStorage(options.objectStorage),
+    // The bots' callback ports, where Workers have service bindings.
+    ...createBotClients(options.botClients ?? {}),
     JOBS: jobs,
     // Present only when the host runs in a pod with a ServiceAccount token.
     KUBERNETES_CREDENTIALS: readServiceAccountCredentials(),

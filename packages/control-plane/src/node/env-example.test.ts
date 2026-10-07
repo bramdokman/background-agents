@@ -7,6 +7,7 @@ import {
   NODE_HOST_VARIABLE_NAMES,
   REQUIRED_ENV_CONFIG_KEY_NAMES,
 } from "./config";
+import { BOT_CLIENT_VARIABLE_NAMES } from "./bot-clients";
 import { AWS_CREDENTIAL_VARIABLE_NAMES, OBJECT_STORAGE_VARIABLE_NAMES } from "./s3-object-storage";
 
 /** The repository's `.env.example`, the documented configuration of a Node host. */
@@ -120,6 +121,7 @@ describe(".env.example", () => {
     const expected = [
       ...ENV_CONFIG_KEY_NAMES,
       ...NODE_HOST_VARIABLE_NAMES,
+      ...Object.values(BOT_CLIENT_VARIABLE_NAMES),
       ...OBJECT_STORAGE_VARIABLE_NAMES,
       ...AWS_CREDENTIAL_VARIABLE_NAMES,
       ...COMPOSE_VARIABLES,
