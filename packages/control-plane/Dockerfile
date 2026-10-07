@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 #
-# The control plane as a container: the Node host (src/node/main.ts) bundled
-# by `build:node`, the D1 migrations it applies at boot, and the litestream
+# The control plane as a container: the Node host (src/node/main.ts) and the
+# Owner bootstrap command (src/node/bootstrap-owner.ts) bundled by
+# `build:node`, the D1 migrations it applies at boot, and the litestream
 # binary the entrypoint uses to restore the global store from a replica.
 #
 # Build from the repository root so the shared package and the migrations
@@ -52,6 +53,8 @@ WORKDIR /app
 COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=litestream /usr/local/bin/litestream /usr/local/bin/litestream
 COPY --from=build /app/packages/control-plane/dist/node/main.js packages/control-plane/dist/node/main.js
+# The Owner bootstrap, run as a one-shot command against the same /data volume.
+COPY --from=build /app/packages/control-plane/dist/node/bootstrap-owner.js packages/control-plane/dist/node/bootstrap-owner.js
 COPY terraform/d1/migrations/ terraform/d1/migrations/
 COPY --chmod=755 packages/control-plane/docker/entrypoint.sh /app/entrypoint.sh
 COPY packages/control-plane/docker/litestream.yml /etc/litestream.yml

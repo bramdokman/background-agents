@@ -45,7 +45,7 @@ import { createSessionRuntimeClient } from "../session/runtime-client";
 import type { Env, EnvConfig, Platform } from "../types";
 import { createNodeBackgroundTasks, settlesWithin } from "./background-tasks";
 import { openNodeCacheDatabase } from "./cache-database";
-import type { NodeHostSettings } from "./config";
+import { GLOBAL_STORE_FILE, type NodeHostSettings } from "./config";
 import { markCleanShutdown, recoverSessionDeadlines } from "./crash-recovery";
 import { CronLoop } from "./cron-loop";
 import { HostAlarmClock } from "./host-alarm-clock";
@@ -60,9 +60,6 @@ import { SessionRuntimeRegistry } from "./session-runtime-registry";
 import { createFileSessionStoreProvider } from "./session-store";
 import { openNodeSqlDatabase } from "./sqlite-database";
 import { createSessionUpgradeHandler, MAX_MESSAGE_BYTES } from "./websocket-upgrade";
-
-/** The global store's file inside the data directory. */
-export const GLOBAL_STORE_FILE = "global.db";
 
 export interface NodeHostOptions {
   config: EnvConfig;
