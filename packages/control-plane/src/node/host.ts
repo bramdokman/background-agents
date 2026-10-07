@@ -28,6 +28,7 @@ import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { WebSocketServer } from "ws";
+import { exportAuditEvents } from "../db/audit-export";
 import { SessionIndexStore } from "../db/session-index";
 import { SqlCacheStore } from "../db/sql-cache-store";
 import type { SqlDatabase } from "../db/sql-database";
@@ -43,6 +44,7 @@ import { SCHEDULED_JOBS } from "../scheduled-jobs";
 import { createSessionRuntime, type SessionRuntime } from "../session/components";
 import { createSessionRuntimeClient } from "../session/runtime-client";
 import type { Env, EnvConfig, Platform } from "../types";
+import { openAuditExportSink } from "./audit-export";
 import { createNodeBackgroundTasks, settlesWithin } from "./background-tasks";
 import { openNodeCacheDatabase } from "./cache-database";
 import { GLOBAL_STORE_FILE, type NodeHostSettings } from "./config";
@@ -140,11 +142,17 @@ async function boot(
     for (const close of [...stores].reverse()) close();
   };
 
-  const db = ownStore(
+  const globalStore = ownStore(
     openNodeSqlDatabase(join(settings.dataDir, GLOBAL_STORE_FILE), {
       migrationsDir: settings.migrationsDir,
     })
   );
+  // Every consumer below takes the wrapped port, so an audit row committed
+  // anywhere in the host is exported; the stores stay unaware of the export.
+  const auditExport = openAuditExportSink(settings, log);
+  const db: SqlDatabase = auditExport
+    ? exportAuditEvents(globalStore, ownStore(auditExport), log)
+    : globalStore;
   const migrationsApplied = await countMigrations(db);
 
   const cacheDb = ownStore(openNodeCacheDatabase(settings.dataDir, log));

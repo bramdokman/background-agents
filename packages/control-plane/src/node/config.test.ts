@@ -49,8 +49,26 @@ describe("readNodeHostSettings", () => {
       dataDir: "/var/lib/oi",
       migrationsDir: DEFAULT_MIGRATIONS_DIR,
       shutdownTimeoutMs: 30_000,
+      auditExportStdout: false,
+      auditExportFile: undefined,
     });
     expect(DEFAULT_MIGRATIONS_DIR.endsWith("/terraform/d1/migrations")).toBe(true);
+  });
+
+  it("reads the audit export settings and rejects a value that is neither true nor false", () => {
+    const settings = readNodeHostSettings({
+      DATA_DIR: "data",
+      AUDIT_EXPORT_STDOUT: "true",
+      AUDIT_EXPORT_FILE: "audit/export.jsonl",
+    });
+    expect(settings.auditExportStdout).toBe(true);
+    expect(settings.auditExportFile).toBe(`${process.cwd()}/audit/export.jsonl`);
+    expect(readNodeHostSettings({ DATA_DIR: "data", AUDIT_EXPORT_STDOUT: "false" })).toMatchObject({
+      auditExportStdout: false,
+    });
+    expect(() => readNodeHostSettings({ DATA_DIR: "data", AUDIT_EXPORT_STDOUT: "yes" })).toThrow(
+      'AUDIT_EXPORT_STDOUT must be "true" or "false", got yes'
+    );
   });
 
   it("reads the overrides and rejects a malformed number", () => {

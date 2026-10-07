@@ -89,6 +89,8 @@ describe("startNodeHost", () => {
     dataDir,
     migrationsDir: DEFAULT_MIGRATIONS_DIR,
     shutdownTimeoutMs: 5_000,
+    auditExportStdout: false,
+    auditExportFile: undefined,
     ...overrides,
   });
 
@@ -165,6 +167,45 @@ describe("startNodeHost", () => {
     host = null;
 
     expect(existsSync(join(dataDir, `${CACHE_STORE_FILE}-wal`))).toBe(false);
+  });
+
+  it("exports an audit row committed through the platform store to the export file", async () => {
+    dataDir = mkdtempSync(join(tmpdir(), "node-host-"));
+    const exportFile = join(dataDir, "audit-export.jsonl");
+    const written: string[] = [];
+    const routes = new Hono<ControlPlaneHonoEnv>();
+    routes.post(
+      "/audit-write",
+      admit({
+        authentication: { kind: "public" },
+        supportedScmProviders: "all",
+        authorization: NO_AUTHORIZATION,
+      }),
+      async (c) => {
+        const id = crypto.randomUUID();
+        written.push(id);
+        await c.env.DB.prepare(
+          `INSERT INTO authorization_audit_events
+             (id, occurred_at, request_id, principal_kind, actor_user_id_snapshot, action,
+              resource_type, resource_id, reason_code, operation_result, metadata_json)
+           VALUES (?, ?, ?, 'user', ?, 'team.created', 'team', ?, 'team.created', 'applied',
+                   '{"before":{},"requested":{},"after":{}}')`
+        )
+          .bind(id, Date.now(), "req-host-test", "user-1", "team-1")
+          .run();
+        return Response.json({ id });
+      }
+    );
+    host = await start({ routes: [routes], settings: settings({ auditExportFile: exportFile }) });
+    const base = `http://127.0.0.1:${host.address.port}`;
+
+    expect(existsSync(exportFile)).toBe(true);
+    await fetch(`${base}/audit-write`, { method: "POST" });
+    await fetch(`${base}/audit-write`, { method: "POST" });
+
+    const lines = readFileSync(exportFile, "utf8").split("\n");
+    expect(lines.pop()).toBe("");
+    expect(lines.map((line) => (JSON.parse(line) as { id: string }).id)).toEqual(written);
   });
 
   it("reports draining once a shutdown begins and stops listening when it ends", async () => {
