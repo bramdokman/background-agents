@@ -39,11 +39,11 @@ describe("route policy table", () => {
   });
 
   it("publishes the complete canonical route catalog", () => {
-    expect(routes).toHaveLength(232);
+    expect(routes).toHaveLength(235);
 
     const paths = routes.map((route) => route.path);
-    expect(new Set(paths).size).toBe(176);
-    expect(new Set(routes.map((route) => `${route.method}:${route.path}`)).size).toBe(232);
+    expect(new Set(paths).size).toBe(178);
+    expect(new Set(routes.map((route) => `${route.method}:${route.path}`)).size).toBe(235);
     expect(routeFor("POST", "/sessions/session-1/sandbox-memory/search")).toMatchObject({
       authentication: { kind: "sandbox" },
       supportedScmProviders: "all",
@@ -117,6 +117,30 @@ describe("route policy table", () => {
       auditAllowed: true,
     });
   });
+
+  it.each([
+    ["GET", "/teams/team-1/github-links"],
+    ["POST", "/teams/team-1/github-links"],
+    ["DELETE", "/teams/team-1/github-links/acme/platform"],
+  ])(
+    "requires workspace member management and team membership management for %s %s",
+    (method, path) => {
+      expect(routeFor(method, path)).toMatchObject({
+        authentication: { kind: "user-or-service" },
+        authorization: {
+          kind: "active-user",
+          allOf: [
+            { kind: "team", teamIdParam: "id", need: "canManageMembers" },
+            { kind: "permission", permission: "workspace.members.manage" },
+          ],
+          service: { kind: "deny" },
+          auditAllowed: true,
+        },
+        supportedScmProviders: ["github"],
+        cacheControl: "private, no-store",
+      });
+    }
+  );
 
   it.each([
     ["GET", "/teams/team-1/secrets"],

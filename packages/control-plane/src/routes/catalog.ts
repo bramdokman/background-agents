@@ -36,6 +36,7 @@ import { signInProviderRoutes } from "./sign-in-providers";
 import { skillRoutes } from "./skills";
 import { teamRoutes } from "./teams";
 import { teamChannelBindingRoutes } from "./team-channel-bindings";
+import { teamGitHubLinkRoutes } from "./team-github-links";
 import { teamSecretsRoutes } from "./team-secrets";
 import { teamSettingsRoutes } from "./settings-teams";
 
@@ -47,6 +48,7 @@ export const catalog: readonly RouteModule[] = [
   signInProviderRoutes,
 
   teamChannelBindingRoutes,
+  teamGitHubLinkRoutes,
   teamRoutes,
   teamSettingsRoutes,
   channelBindingRoutes,
