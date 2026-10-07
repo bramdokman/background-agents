@@ -4,7 +4,7 @@ description: How people are admitted to an OpenInspect workspace, what each role
 audience: admin
 owner: security
 status: published
-lastReviewed: "2026-10-04"
+lastReviewed: "2026-10-07"
 relatedCode:
   - docs/AUTH.md
   - packages/shared/src/rbac.ts
@@ -31,7 +31,7 @@ This page explains who can get into your workspace, what each role permits, and 
 
 ## Signing in and admission
 
-A deployment can offer GitHub sign-in, Google sign-in, or both. The sign-in page shows only the providers the operator configured.
+A deployment can offer GitHub sign-in, Google sign-in, Microsoft Entra ID sign-in, or any combination. The sign-in page shows only the providers the operator configured.
 
 Signing in has two stages:
 
@@ -41,7 +41,7 @@ Signing in has two stages:
 ```mermaid
 flowchart TB
     accTitle: How sign-in, admission, and role assignment work
-    signin["Sign in with GitHub or Google"] --> verify["Provider verifies identity and email"]
+    signin["Sign in with GitHub, Google or Microsoft"] --> verify["Provider verifies identity and email"]
     verify --> admit{"Admission rules pass?"}
     admit -->|No| denied["Not admitted"]
     admit -->|Yes| member["Joins the workspace as a Member"]
@@ -50,14 +50,15 @@ flowchart TB
 
 Admission can be limited by any of the following, depending on how the deployment is configured:
 
-| Allowlist kind              | What it matches                       |
-| --------------------------- | ------------------------------------- |
-| GitHub username             | The signed-in GitHub login            |
-| Verified email address      | An exact address                      |
-| Verified email domain       | Any address on the domain             |
-| Allowed GitHub organization | Active membership in the organization |
+| Allowlist kind                 | What it matches                                                                |
+| ------------------------------ | ------------------------------------------------------------------------------ |
+| GitHub username                | The signed-in GitHub login                                                     |
+| Verified email address         | An exact address                                                               |
+| Verified email domain          | Any address on the domain                                                      |
+| Allowed GitHub organization    | Active membership in the organization                                          |
+| Allowed Microsoft email domain | A tenant-attested address on the domain, from the configured Entra tenant only |
 
-These rules are checked at sign-in. Removing someone from an allowlist or from a GitHub organization does not end an existing browser session. When access must be revoked immediately, suspend the member (see [Suspension](#suspension)).
+These rules are checked at sign-in, and a denied sign-in is recorded in the audit log as `auth.sign_in_denied` with the provider and reason. Removing someone from an allowlist, a GitHub organization or the Entra tenant does not end an existing browser session. When access must be revoked immediately, suspend the member (see [Suspension](#suspension)).
 
 Signing in does not make anyone an Owner or Administrator. Every admitted user has exactly one workspace role, and new users receive the Member role by default.
 

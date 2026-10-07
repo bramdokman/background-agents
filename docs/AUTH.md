@@ -14,8 +14,8 @@ other guides summarize these rules for their audiences.
 
 ## Signing In
 
-A deployment can offer GitHub sign-in, Google sign-in, or both. The sign-in page shows only the
-providers configured by the deployment operator.
+A deployment can offer GitHub sign-in, Google sign-in, Microsoft Entra ID sign-in, or any
+combination. The sign-in page shows only the providers configured by the deployment operator.
 
 Signing in has two stages:
 
@@ -28,10 +28,80 @@ Depending on the deployment configuration, admission can be limited by:
 - Verified email address
 - Verified email domain
 - Active membership in an allowed GitHub organization
+- Membership of the deployment's Microsoft Entra tenant with a verified email in an allowed domain
 
-These rules are checked when you sign in. Removing someone from an allowlist or GitHub organization
-does not end an existing browser session; an Administrator or Owner can suspend the member when
-access must be revoked immediately.
+These rules are checked when you sign in. A denied sign-in is recorded in the workspace audit log as
+`auth.sign_in_denied`, with the provider, the reason, and the identity's issuer, subject, tenant and
+email domain, so an Administrator can see why someone was turned away. Removing someone from an
+allowlist, GitHub organization or Entra tenant does not end an existing browser session; an
+Administrator or Owner can suspend the member when access must be revoked immediately.
+
+### Microsoft Entra ID
+
+Microsoft sign-in is single-tenant: one app registration in one Entra tenant, and only accounts that
+tenant issues tokens for can be admitted. It is sign-in only. The app requests the delegated
+permissions `openid`, `profile`, `email` and `User.Read`, reads the ID token, and calls nothing else
+in Microsoft Graph; no refresh token is requested.
+
+#### App registration
+
+An administrator of the tenant performs these steps once, in the Microsoft Entra admin center under
+**App registrations**:
+
+1. **New registration.** Name it after the deployment. Under _Supported account types_ choose
+   **Accounts in this organizational directory only** (single tenant). Under _Redirect URI_ choose
+   **Web** and enter `{WEB_APP_URL}/api/auth/callback/microsoft`, where `WEB_APP_URL` is the
+   browser-visible origin of the web app (for example
+   `https://open-inspect.example.com/api/auth/callback/microsoft`). The URI must match exactly,
+   including the scheme and port.
+2. **Certificates & secrets.** Create a client secret and record its _value_ (shown once). Note its
+   expiry; rotate it by setting a new `MICROSOFT_CLIENT_SECRET` before the old one lapses.
+3. **API permissions.** Keep the default delegated Microsoft Graph permission `User.Read`; together
+   with the OpenID scopes `openid`, `profile` and `email` it is all the app ever requests. Do not
+   add application permissions. Grant admin consent for the tenant if your tenant does not allow
+   users to consent themselves.
+4. **Token configuration.** Add the optional claims to the **ID** token that let the deployment
+   verify the email: `email`, `verified_primary_email` and `xms_edov` (and `email_verified` if your
+   tenant offers it). Without an attested email, every sign-in from the tenant is denied as
+   `microsoft_email_unverified`.
+5. From the **Overview** page copy the _Application (client) ID_ and the _Directory (tenant) ID_.
+
+#### Deployment configuration
+
+Set all three provider variables together; the provider is off while any of them is unset:
+
+| Variable                    | Value                                                                 |
+| --------------------------- | --------------------------------------------------------------------- |
+| `MICROSOFT_CLIENT_ID`       | The registration's Application (client) ID                            |
+| `MICROSOFT_CLIENT_SECRET`   | The client secret value                                               |
+| `MICROSOFT_TENANT_ID`       | The Directory (tenant) ID as a GUID; `common`-style names are refused |
+| `MICROSOFT_ALLOWED_DOMAINS` | Comma-separated email domains admitted from that tenant               |
+
+`MICROSOFT_ALLOWED_DOMAINS` applies to Microsoft sign-in only. The provider-neutral rules
+`ALLOWED_EMAILS` and `ALLOWED_EMAIL_DOMAINS` also admit Microsoft users; `ALLOWED_USERS` and
+`ALLOWED_GITHUB_ORGS` do not. Microsoft sign-in needs at least one of `MICROSOFT_ALLOWED_DOMAINS`,
+`ALLOWED_EMAILS` or `ALLOWED_EMAIL_DOMAINS` (or `UNSAFE_ALLOW_ALL_USERS`), or the control plane
+refuses to start.
+
+#### Admission rules
+
+A Microsoft sign-in is admitted only when all of the following hold, checked in this order:
+
+1. The ID token's tenant (`tid`) is `MICROSOFT_TENANT_ID`. Tokens from any other tenant, including
+   personal Microsoft accounts and guests signing in through their home tenant, are denied
+   (`microsoft_tenant_mismatch`). The provider also only accepts tokens issued by that tenant.
+2. The token carries an email the tenant attests, through `email_verified`, `xms_edov`,
+   `verified_primary_email` or `verified_secondary_email` (`microsoft_email_unverified` otherwise).
+3. The email's domain is in `MICROSOFT_ALLOWED_DOMAINS`, or the address or domain matches
+   `ALLOWED_EMAILS` or `ALLOWED_EMAIL_DOMAINS` (`microsoft_domain_not_allowed` otherwise).
+
+The first two gates hold even when `UNSAFE_ALLOW_ALL_USERS` is set. Each denial is audited as
+described above.
+
+An admitted user's identity is recorded under the Entra object id (`oid`), the tenant-wide immutable
+identifier that Microsoft Teams exposes as `aadObjectId`, rather than the per-application `sub`.
+Someone who also signs in with GitHub (for example to attribute their work to their GitHub account)
+is linked to the same workspace user by their verified email, as with Google.
 
 Authentication does not make someone an Owner or Administrator. Every admitted user has exactly one
 workspace role, and new users receive the Member role by default.
