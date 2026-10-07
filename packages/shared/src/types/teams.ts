@@ -54,6 +54,29 @@ export const teamMembershipSchema = z.object({
 });
 export type TeamMembership = z.infer<typeof teamMembershipSchema>;
 
+/** A GitHub organization team whose members the scheduled sync mirrors into a team. */
+export const teamGitHubLinkSchema = z.object({
+  teamId: z.string(),
+  githubOrg: z.string(),
+  githubTeamSlug: z.string(),
+  createdAt: z.number(),
+  /** Epoch milliseconds of the last successful sync, or null before the first one. */
+  lastSyncedAt: z.number().nullable(),
+});
+export type TeamGitHubLink = z.infer<typeof teamGitHubLinkSchema>;
+
+// Both are single GitHub URL path segments; the sync interpolates them into API paths.
+export const createTeamGitHubLinkRequestSchema = z.strictObject({
+  githubOrg: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/),
+  githubTeamSlug: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,99}$/),
+});
+export type CreateTeamGitHubLinkRequest = z.infer<typeof createTeamGitHubLinkRequestSchema>;
+
+export const teamGitHubLinkResponseSchema = z.object({ link: teamGitHubLinkSchema });
+export const teamGitHubLinksResponseSchema = z.object({
+  links: z.array(teamGitHubLinkSchema),
+});
+
 export const createTeamRequestSchema = z.object({
   slug: z.string().regex(/^[a-z0-9][a-z0-9-]{1,62}$/),
   name: z.string().min(1).max(80),
