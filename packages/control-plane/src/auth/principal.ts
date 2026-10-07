@@ -9,16 +9,34 @@
 
 import type { ServiceName } from "@open-inspect/shared/service-auth";
 
-/** Actor namespaces bots may assert (`slack:U123` etc.). */
-const ACTOR_NAMESPACES = ["slack", "github", "linear"] as const;
+/**
+ * Actor namespaces bots may assert (`slack:U123` etc.). `microsoft` carries
+ * the Entra object id (`oid`), the same subject the Microsoft web sign-in
+ * stores, so a Teams bot's `aadObjectId` matches that identity directly.
+ */
+const ACTOR_NAMESPACES = ["slack", "github", "linear", "microsoft"] as const;
 export type ActorNamespace = (typeof ACTOR_NAMESPACES)[number];
 
 export function isActorNamespace(value: string): value is ActorNamespace {
   return (ACTOR_NAMESPACES as readonly string[]).includes(value);
 }
 
+/**
+ * How a verified service actor becomes a canonical user. Slack, GitHub and
+ * Linear actors enroll on first contact: the bot is the first-party source of
+ * that identity. A Microsoft actor is an object id a bot read off an activity;
+ * the tenant evidence for it is the web sign-in (`db/user-store.ts`,
+ * `EMAIL_ATTESTING_PROVIDERS`), so a bot may resolve a user who has signed in
+ * once and never create one.
+ */
+export type ActorEnrollment = "resolve-or-create" | "existing-only";
+
+export function actorEnrollment(provider: ResolvedIdentity["provider"]): ActorEnrollment {
+  return provider === "microsoft" ? "existing-only" : "resolve-or-create";
+}
+
 export interface ResolvedIdentity {
-  provider: "github" | "google" | "slack" | "linear";
+  provider: "github" | "google" | "slack" | "linear" | "microsoft";
   providerUserId: string;
   /** Canonical D1 `users.id`. Always set for user principals; null for actors the CP has never seen. */
   canonicalUserId: string | null;

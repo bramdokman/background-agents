@@ -100,6 +100,13 @@ describe("parseAuthorId", () => {
     });
   });
 
+  it("parses microsoft authorId", () => {
+    expect(parseAuthorId("microsoft:4f1c2d3e-5a6b-4c7d-8e9f-0a1b2c3d4e5f")).toEqual({
+      provider: "microsoft",
+      providerUserId: "4f1c2d3e-5a6b-4c7d-8e9f-0a1b2c3d4e5f",
+    });
+  });
+
   it("returns null for plain user ID (web client)", () => {
     expect(parseAuthorId("user-id-123")).toBeNull();
   });

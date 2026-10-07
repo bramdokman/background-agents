@@ -281,6 +281,7 @@ describe("authenticate — service credentials", () => {
       { service: "slack-bot", actor: "github:1" },
       { service: "github-bot", actor: "linear:usr_1" },
       { service: "linear-bot", actor: "slack:U1" },
+      { service: "slack-bot", actor: "microsoft:4f1c2d3e-5a6b-4c7d-8e9f-0a1b2c3d4e5f" },
       { service: "slack-bot", actor: "malformed" },
     ];
     for (const { service, actor } of cases) {
