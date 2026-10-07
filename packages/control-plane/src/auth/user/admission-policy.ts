@@ -12,13 +12,29 @@ export interface GoogleAdmissionEvidence {
   readonly identity: VerifiedProviderIdentity<"google">;
 }
 
-export type VerifiedProviderSignIn = GitHubAdmissionEvidence | GoogleAdmissionEvidence;
+/**
+ * A Microsoft Entra ID sign-in: the identity's `verifiedEmails` holds the
+ * token's email only when the tenant attests it (see `microsoft-profile.ts`),
+ * and `tenantId` is the verified `tid` claim. Both are admission gates that
+ * no allowlist, nor `UNSAFE_ALLOW_ALL_USERS`, bypasses.
+ */
+export interface MicrosoftAdmissionEvidence {
+  readonly identity: VerifiedProviderIdentity<"microsoft">;
+  readonly tenantId: string;
+}
+
+export type VerifiedProviderSignIn =
+  GitHubAdmissionEvidence | GoogleAdmissionEvidence | MicrosoftAdmissionEvidence;
 
 export interface AdmissionPolicyConfig {
   readonly allowedGitHubUsers: readonly string[];
   readonly allowedEmails: readonly string[];
   readonly allowedEmailDomains: readonly string[];
   readonly allowedGitHubOrganizations: readonly string[];
+  /** The one Entra tenant Microsoft sign-ins may come from; null when the provider is off. */
+  readonly microsoftTenantId: string | null;
+  /** Verified email domains admitted from that tenant through Microsoft sign-in only. */
+  readonly allowedMicrosoftDomains: readonly string[];
   readonly unsafeAllowAllUsers: boolean;
 }
 
@@ -27,14 +43,32 @@ export type AdmissionDecision =
   | { readonly reason: "github_user_allowlist" }
   | { readonly reason: "email_allowlist" }
   | { readonly reason: "email_domain_allowlist" }
-  | { readonly reason: "github_organization"; readonly organization: string };
+  | { readonly reason: "github_organization"; readonly organization: string }
+  | {
+      readonly reason: "microsoft_tenant_domain";
+      readonly tenantId: string;
+      readonly domain: string;
+    };
+
+export type AdmissionDenialReason =
+  | "no_matching_rule"
+  | "microsoft_tenant_mismatch"
+  | "microsoft_email_unverified"
+  | "microsoft_domain_not_allowed";
+
+/** What was denied, for the audit row: the verified evidence, never the token. */
+export interface AdmissionDenial {
+  readonly reason: AdmissionDenialReason;
+  readonly identity: VerifiedProviderIdentity;
+  readonly tenantId?: string;
+}
 
 export interface AdmissionPolicyDependencies {
   readonly fetcher?: typeof fetch;
 }
 
 export class AdmissionDeniedError extends Error {
-  constructor() {
+  constructor(readonly denial: AdmissionDenial | null = null) {
     super("User is not admitted by this deployment");
     this.name = "AdmissionDeniedError";
   }
@@ -73,6 +107,18 @@ function isGitHubSignIn(signIn: VerifiedProviderSignIn): signIn is GitHubAdmissi
   return signIn.identity.provider === "github";
 }
 
+function isMicrosoftSignIn(signIn: VerifiedProviderSignIn): signIn is MicrosoftAdmissionEvidence {
+  return signIn.identity.provider === "microsoft";
+}
+
+function denied(signIn: VerifiedProviderSignIn, reason: AdmissionDenialReason): never {
+  throw new AdmissionDeniedError({
+    reason,
+    identity: signIn.identity,
+    ...(isMicrosoftSignIn(signIn) ? { tenantId: signIn.tenantId } : {}),
+  });
+}
+
 export class AdmissionPolicy {
   private readonly config: AdmissionPolicyConfig;
   private readonly fetcher: typeof fetch;
@@ -83,6 +129,8 @@ export class AdmissionPolicy {
       allowedEmails: normalize(config.allowedEmails),
       allowedEmailDomains: normalize(config.allowedEmailDomains),
       allowedGitHubOrganizations: normalize(config.allowedGitHubOrganizations),
+      microsoftTenantId: config.microsoftTenantId?.trim().toLowerCase() || null,
+      allowedMicrosoftDomains: normalize(config.allowedMicrosoftDomains),
       unsafeAllowAllUsers: config.unsafeAllowAllUsers,
     };
     this.fetcher = dependencies.fetcher ?? globalThis.fetch.bind(globalThis);
@@ -94,22 +142,31 @@ export class AdmissionPolicy {
     const hasGitHubAdmission =
       this.config.allowedGitHubUsers.length > 0 ||
       this.config.allowedGitHubOrganizations.length > 0;
-    const hasConfiguredAllowlist = hasProviderNeutralAdmission || hasGitHubAdmission;
+    const hasMicrosoftAdmission = this.config.allowedMicrosoftDomains.length > 0;
+    const hasConfiguredAllowlist =
+      hasProviderNeutralAdmission || hasGitHubAdmission || hasMicrosoftAdmission;
 
     if (!hasConfiguredAllowlist && this.config.unsafeAllowAllUsers) return true;
     const providerSupport: Readonly<Record<SignInProvider, boolean>> = {
       github: hasProviderNeutralAdmission || hasGitHubAdmission,
       google: hasProviderNeutralAdmission,
+      microsoft: hasProviderNeutralAdmission || hasMicrosoftAdmission,
     };
     return providerSupport[provider];
   }
 
   async requireAdmission(signIn: VerifiedProviderSignIn): Promise<AdmissionDecision> {
+    // The tenant and verification gates precede every allowlist, including
+    // the unsafe allow-all: a Microsoft identity from another tenant, or
+    // without an attested email, is never this deployment's user.
+    if (isMicrosoftSignIn(signIn)) this.requireMicrosoftTenant(signIn);
+
     const hasConfiguredAllowlist =
       this.config.allowedGitHubUsers.length > 0 ||
       this.config.allowedEmails.length > 0 ||
       this.config.allowedEmailDomains.length > 0 ||
-      this.config.allowedGitHubOrganizations.length > 0;
+      this.config.allowedGitHubOrganizations.length > 0 ||
+      this.config.allowedMicrosoftDomains.length > 0;
     if (!hasConfiguredAllowlist && this.config.unsafeAllowAllUsers) {
       return { reason: "unsafe_allow_all" };
     }
@@ -138,7 +195,29 @@ export class AdmissionPolicy {
     if (isGitHubSignIn(signIn) && this.config.allowedGitHubOrganizations.length > 0) {
       return this.requireGitHubOrganization(signIn);
     }
-    throw new AdmissionDeniedError();
+    if (isMicrosoftSignIn(signIn)) {
+      const domain = emails
+        .map(emailDomain)
+        .find(
+          (candidate) =>
+            candidate !== null && this.config.allowedMicrosoftDomains.includes(candidate)
+        );
+      if (domain) return { reason: "microsoft_tenant_domain", tenantId: signIn.tenantId, domain };
+      denied(signIn, "microsoft_domain_not_allowed");
+    }
+    denied(signIn, "no_matching_rule");
+  }
+
+  private requireMicrosoftTenant(signIn: MicrosoftAdmissionEvidence): void {
+    if (
+      this.config.microsoftTenantId === null ||
+      signIn.tenantId.toLowerCase() !== this.config.microsoftTenantId
+    ) {
+      denied(signIn, "microsoft_tenant_mismatch");
+    }
+    if (signIn.identity.verifiedEmails.length === 0) {
+      denied(signIn, "microsoft_email_unverified");
+    }
   }
 
   private async requireGitHubOrganization(
@@ -184,6 +263,6 @@ export class AdmissionPolicy {
     }
 
     if (unavailable) throw new AdmissionUnavailableError();
-    throw new AdmissionDeniedError();
+    denied(signIn, "no_matching_rule");
   }
 }

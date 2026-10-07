@@ -1,4 +1,5 @@
 import { BROWSER_AUTH_CLIENT_IP_HEADER } from "@open-inspect/shared/browser-auth-routes";
+import { SIGN_IN_PROVIDER_ISSUERS } from "@open-inspect/shared/sign-in-provider";
 import { betterAuth } from "better-auth";
 import { createCanonicalBetterAuthAdapter } from "../../db/better-auth-adapter";
 import type { SqlDatabase } from "../../db/sql-database";
@@ -10,10 +11,21 @@ const MS_PER_SECOND = 1000;
 export const SESSION_EXPIRES_IN_MS = 7 * 24 * 60 * 60 * MS_PER_SECOND;
 export const SESSION_UPDATE_AGE_MS = 24 * 60 * 60 * MS_PER_SECOND;
 
+/**
+ * Sign-in only: no Graph beyond the profile claims, and no `offline_access`,
+ * since no Microsoft token is used after the callback.
+ */
+const MICROSOFT_SIGN_IN_SCOPES = ["openid", "profile", "email", "User.Read"] as const;
+
 export interface SocialProviderAuthConfig {
   readonly clientId: string;
   readonly clientSecret: string;
   readonly getUserInfo: ProviderProfileResolver;
+}
+
+export interface MicrosoftProviderAuthConfig extends SocialProviderAuthConfig {
+  /** The single Entra tenant whose endpoints and tokens the provider accepts. */
+  readonly tenantId: string;
 }
 
 export interface UserAuthConfig {
@@ -22,6 +34,7 @@ export interface UserAuthConfig {
   readonly secret: string;
   readonly github?: SocialProviderAuthConfig;
   readonly google?: SocialProviderAuthConfig;
+  readonly microsoft?: MicrosoftProviderAuthConfig;
 }
 
 /**
@@ -83,6 +96,17 @@ export function createUserAuth(config: UserAuthConfig) {
         ? {
             google: {
               ...config.google,
+              disableIdTokenSignIn: true,
+            },
+          }
+        : {}),
+      ...(config.microsoft
+        ? {
+            microsoft: {
+              ...config.microsoft,
+              authority: SIGN_IN_PROVIDER_ISSUERS.microsoft,
+              disableDefaultScope: true,
+              scope: [...MICROSOFT_SIGN_IN_SCOPES],
               disableIdTokenSignIn: true,
             },
           }

@@ -19,6 +19,8 @@ export interface EnvConfig {
   GITHUB_CLIENT_SECRET?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
+  MICROSOFT_CLIENT_ID?: string;
+  MICROSOFT_CLIENT_SECRET?: string;
   BROWSER_AUTH_SECRET?: string;
   TOKEN_ENCRYPTION_KEY: string;
   PROVIDER_ACCOUNTS_ENCRYPTION_KEY: string;
@@ -60,6 +62,8 @@ export interface EnvConfig {
   ALLOWED_EMAIL_DOMAINS?: string;
   ALLOWED_EMAILS?: string;
   ALLOWED_GITHUB_ORGS?: string;
+  MICROSOFT_TENANT_ID?: string; // Entra tenant GUID; set with the MICROSOFT_CLIENT_* pair
+  MICROSOFT_ALLOWED_DOMAINS?: string; // Verified email domains admitted from that tenant
   UNSAFE_ALLOW_ALL_USERS?: string;
   CF_ACCOUNT_ID?: string; // Cloudflare account ID
   SANDBOX_PROVIDER?: string; // "modal" (default), "daytona", "vercel", "opencomputer", "e2b", or "kubernetes"

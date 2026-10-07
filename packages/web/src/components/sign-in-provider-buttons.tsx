@@ -5,7 +5,7 @@ import { useState } from "react";
 import { signIn } from "@/lib/auth-session";
 import { Button } from "@/components/ui/button";
 import { ErrorBanner } from "@/components/ui/error-banner";
-import { GitHubIcon, GoogleIcon } from "@/components/ui/icons";
+import { GitHubIcon, GoogleIcon, MicrosoftIcon } from "@/components/ui/icons";
 
 const PROVIDER_PRESENTATION = {
   github: {
@@ -16,6 +16,11 @@ const PROVIDER_PRESENTATION = {
   google: {
     label: "Google",
     icon: GoogleIcon,
+    variant: "outline",
+  },
+  microsoft: {
+    label: "Microsoft",
+    icon: MicrosoftIcon,
     variant: "outline",
   },
 } as const satisfies Record<

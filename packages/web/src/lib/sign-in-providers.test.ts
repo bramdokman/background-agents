@@ -34,10 +34,10 @@ describe("getEnabledSignInProviders", () => {
 
   it("returns the validated provider set from an exact server-only request", async () => {
     mocks.dispatchWebServiceRequest.mockResolvedValue(
-      Response.json({ providers: ["github", "google"] })
+      Response.json({ providers: ["github", "google", "microsoft"] })
     );
 
-    await expect(getEnabledSignInProviders()).resolves.toEqual(["github", "google"]);
+    await expect(getEnabledSignInProviders()).resolves.toEqual(["github", "google", "microsoft"]);
     expect(mocks.dispatchWebServiceRequest).toHaveBeenCalledWith({
       method: "GET",
       path: "/internal/auth/sign-in-providers",
@@ -65,6 +65,7 @@ describe("getEnabledSignInProviders", () => {
   it.each([
     Response.json({ providers: [] }),
     Response.json({ providers: ["github", "github"] }),
+    Response.json({ providers: ["microsoft", "github"] }),
     Response.json({ providers: ["saml"] }),
     Response.json({ providers: "github" }),
     Response.json({ error: "sensitive upstream detail" }, { status: 503 }),

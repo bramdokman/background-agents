@@ -9,6 +9,7 @@ export const BROWSER_AUTH_PROXY_ROUTES = [
   ["POST", "/api/auth/sign-in/social"],
   ["GET", "/api/auth/callback/github"],
   ["GET", "/api/auth/callback/google"],
+  ["GET", "/api/auth/callback/microsoft"],
   ["GET", "/api/auth/get-session"],
   ["POST", "/api/auth/sign-out"],
   ["GET", "/api/auth/error"],

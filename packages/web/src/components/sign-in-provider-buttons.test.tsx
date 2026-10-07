@@ -26,6 +26,18 @@ describe("SignInProviderButtons", () => {
 
     expect(screen.getByRole("button", { name: "Sign in with Google" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Sign in with GitHub" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Sign in with Microsoft" })
+    ).not.toBeInTheDocument();
+  });
+
+  it("offers Microsoft sign-in only when the deployment enables it", async () => {
+    const user = userEvent.setup();
+    render(<SignInProviderButtons providers={["github", "microsoft"]} />);
+
+    await user.click(screen.getByRole("button", { name: "Sign in with Microsoft" }));
+
+    expect(signIn).toHaveBeenCalledWith("microsoft");
   });
 
   it("invokes only the selected provider and disables every action while pending", async () => {
