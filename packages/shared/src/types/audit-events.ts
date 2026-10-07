@@ -75,6 +75,7 @@ export const AUDIT_OBSERVATION_ACTIONS = ["session.shadow_denied"] as const;
 
 /** Actions written by the operation owner alongside the change; their result is the domain outcome. */
 export const AUDIT_OPERATION_ACTIONS = [
+  "auth.sign_in_denied",
   "memory.created",
   "memory.revised",
   "memory.archived",
