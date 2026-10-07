@@ -54,6 +54,7 @@ A deployment runs on exactly one sandbox provider, chosen at setup:
 | Vercel Sandboxes | Filesystem snapshot restore                            |
 | OpenComputer     | Persistent sandbox resume or checkpoint-backed restore |
 | E2B              | Persistent sandbox paused and resumed                  |
+| Kubernetes       | Persistent volume; a new pod resumes on it             |
 
 Provider differences that users notice (which resource and timeout settings apply, how prebuilt images are stored, and the Daytona prebuild admission switch) are covered in [Sandbox providers](/configure/sandbox-providers).
 
