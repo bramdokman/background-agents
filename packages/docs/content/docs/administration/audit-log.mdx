@@ -4,10 +4,13 @@ description: What the workspace audit log records, how to read an event, and how
 audience: admin
 owner: control-plane
 status: published
-lastReviewed: "2026-10-03"
+lastReviewed: "2026-10-07"
 relatedCode:
   - packages/shared/src/types/audit-events.ts
   - packages/control-plane/src/routes/audit-events.ts
+  - packages/control-plane/src/db/audit-export.ts
+  - packages/control-plane/src/node/audit-export.ts
+  - scripts/audit-export-check.mjs
   - packages/control-plane/src/authorization/request-audit.ts
   - packages/control-plane/src/db/authorization-store.ts
   - packages/control-plane/src/db/session-audit.ts
@@ -79,11 +82,43 @@ In `shadow` [Teams enforcement](/administration/deployment#teams-enforcement), a
 
 ## Reading the log
 
-Events are listed newest first, 25 per page. The **Team** selector defaults to **All teams** and can narrow the log to a selected team. The page has no search or export, and no retention period is stated. Use **Previous** and **Next** to move between pages; the current page number is shown between the buttons. After changing pages the list scrolls back to the heading.
+Events are listed newest first, 25 per page. The **Team** selector defaults to **All teams** and can narrow the log to a selected team. The page has no search, and no retention period is stated; self-hosted deployments can [export the log](#exporting-the-log) as it is written. Use **Previous** and **Next** to move between pages; the current page number is shown between the buttons. After changing pages the list scrolls back to the heading.
 
 When there are no events, the page shows "No audit events yet" with the note "Workspace activity will appear here as it is recorded."
 
 If a refresh fails while events are already loaded, a banner reads "Unable to refresh the audit log. Showing the most recently loaded events." with a **Retry** button. If the first load fails, the page shows "Unable to load the audit log." with **Retry**.
+
+## Exporting the log
+
+A control plane running as a Node process (the container deployment) can copy every audit event to an external, append-only log as it is written, so the log can be kept and searched outside the database. Two settings in the host's environment turn it on; both default to off.
+
+| Variable              | Effect                                                                                                                                                                                                                  |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AUDIT_EXPORT_STDOUT` | `true` writes each event to the process's stdout as one JSON log line with `component` set to `audit-export`, which a log shipper can select. These lines are emitted whatever `LOG_LEVEL` is set to.                   |
+| `AUDIT_EXPORT_FILE`   | A path to append each event to, one JSON line per event. The file is opened in append mode when the host boots, and created private to the host user if it does not exist. A path that cannot be opened fails the boot. |
+
+An event is exported at the moment its row is committed, never before: an operation whose audit insert was rolled back or skipped exports nothing, and a request that wrote an audit row has exported it before it answers. If a sink fails, the failure is logged and the request still succeeds; the row in the database remains the record of truth.
+
+Each exported line carries the same event ID as the row shown under **Structured details**, with its fields in a fixed order (one event per line in the export; wrapped here for reading):
+
+```json
+{
+  "id": "…",
+  "occurredAt": "2026-10-07T10:00:00.000Z",
+  "action": "team.created",
+  "operationResult": "applied",
+  "reasonCode": "team.created",
+  "requestId": "…",
+  "principal": { "kind": "user", "userId": "…", "service": null },
+  "target": { "userId": null },
+  "resource": { "type": "team", "id": "…", "teamId": "…" },
+  "metadata": { "before": {}, "requested": {}, "after": {} }
+}
+```
+
+`occurredAt` is the event's time as an ISO 8601 timestamp. On stdout the same fields follow the logger's `level`, `service`, `component` and `msg` fields.
+
+To verify an export file, or the lines a shipper collected, run `node scripts/audit-export-check.mjs FILE` from a repository checkout. It confirms that every line parses, that no event ID repeats, and that timestamps never go backwards, and exits non-zero naming each offending line.
 
 ## Typical uses
 
