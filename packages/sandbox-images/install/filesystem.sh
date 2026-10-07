@@ -1,7 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 if ! id "$OI_RUNTIME_USER" >/dev/null 2>&1; then
-  useradd --create-home --home-dir "$OI_RUNTIME_HOME" --shell /bin/bash "$OI_RUNTIME_USER"
+  if [[ -n "${OI_RUNTIME_UID:-}" ]]; then
+    # A target that pins the uid (Kubernetes runAsUser) gets it, with a matching group.
+    groupadd --gid "$OI_RUNTIME_UID" "$OI_RUNTIME_USER"
+    useradd --uid "$OI_RUNTIME_UID" --gid "$OI_RUNTIME_UID" --create-home \
+      --home-dir "$OI_RUNTIME_HOME" --shell /bin/bash "$OI_RUNTIME_USER"
+  else
+    useradd --create-home --home-dir "$OI_RUNTIME_HOME" --shell /bin/bash "$OI_RUNTIME_USER"
+  fi
+fi
+if [[ -n "${OI_RUNTIME_UID:-}" && "$(id -u "$OI_RUNTIME_USER")" != "$OI_RUNTIME_UID" ]]; then
+  echo "Runtime user $OI_RUNTIME_USER exists with a uid other than $OI_RUNTIME_UID" >&2
+  exit 1
 fi
 mkdir -p /workspace /tmp/opencode /app/plugins /app/verify \
   "$OI_RUNTIME_HOME/.local/bin" "$OI_RUNTIME_HOME/.npm-global" "$OI_RUNTIME_HOME/.npm-cache" \
