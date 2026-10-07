@@ -116,6 +116,35 @@ operations are recorded in the workspace audit log, which `workspace.audit.read`
 by any team. Sidebar team selections only narrow which readable sessions are listed. The new-session
 composer's team and visibility, by contrast, set the created session's ownership and audience.
 
+### GitHub Team Sync
+
+A team can mirror the members of one or more GitHub organization teams. Owners and Administrators
+link a GitHub team through `POST /teams/:id/github-links` with `{ "githubOrg", "githubTeamSlug" }`,
+list links with `GET /teams/:id/github-links`, and unlink with
+`DELETE /teams/:id/github-links/:githubOrg/:githubTeamSlug`; team leads cannot manage links on their
+own. Each link and unlink is audited as `team.github_link_added` or `team.github_link_removed`.
+
+The control plane's every-minute scheduler tick syncs every linked team whose links are older than
+`GITHUB_TEAM_SYNC_INTERVAL_MS` (default five minutes); a deployment without links does nothing
+beyond one indexed read. The sync lists each linked GitHub team's members with the GitHub App
+installation token, so the App needs the organization **Members** read permission and `GITHUB_APP_*`
+must be configured. It then reconciles the team's `github_team`-sourced memberships against the
+union of the linked teams:
+
+- GitHub members who have signed in to Open-Inspect with that GitHub account are added as `member`
+  with source `github_team`. Members without an Open-Inspect identity are skipped until they sign
+  in.
+- `github_team` memberships whose user is no longer in any linked GitHub team are removed. A synced
+  member who was promoted to lead stays while they are the team's last lead.
+- Memberships with any other source (`manual` adds, joins, leads) are never added, removed, or
+  re-sourced. A manual member who is also in the GitHub team keeps the manual row.
+
+Every change writes a `team.github_sync_changed` audit event naming the user, the GitHub teams, and
+the synced-member counts before and after; an unchanged run writes nothing. A team whose GitHub
+listing fails is skipped for that run and retried on the next; a partial listing never removes
+members. Unlinking stops the sync but keeps the memberships it created; remove them in the Members
+tab. Archived teams are not synced.
+
 ### Session Visibility
 
 Each session stores a visibility independently of its owning team, so a team-owned session can be
