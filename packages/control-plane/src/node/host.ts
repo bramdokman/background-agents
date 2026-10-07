@@ -52,6 +52,7 @@ import { HostAlarmClock } from "./host-alarm-clock";
 import { openHostAlarmIndex } from "./host-alarm-index";
 import { createNodeHttpServer, type HealthReport } from "./http-server";
 import { NodeJobs } from "./job-queue";
+import { readServiceAccountCredentials } from "./kubernetes-credentials";
 import { openJobStore } from "./job-store";
 import { ensurePrivateDirectory } from "./private-paths";
 import { createNodeSessionRuntimeDispatch } from "./runtime-client";
@@ -193,6 +194,8 @@ async function boot(
     REPOS_CACHE: new SqlCacheStore(cacheDb),
     MEDIA_BUCKET: createS3ObjectStorage(options.objectStorage),
     JOBS: jobs,
+    // Present only when the host runs in a pod with a ServiceAccount token.
+    KUBERNETES_CREDENTIALS: readServiceAccountCredentials(),
   };
   const env: Env = { ...config, ...platform };
 

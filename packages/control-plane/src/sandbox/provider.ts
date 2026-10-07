@@ -341,6 +341,12 @@ export interface ResumeConfig {
   sandboxId: string;
   /** Sandbox lifetime in seconds from control-plane policy */
   timeoutSeconds?: number;
+  /**
+   * Reservation time of the generation this resume starts, as on
+   * CreateSandboxConfig and StopConfig: lets a provider tie what it starts to
+   * the generation a later stop names.
+   */
+  generationCreatedAtMs?: number;
   /** Whether code-server should be exposed */
   codeServerEnabled?: boolean;
   /** Whether browser-based VNC access should be exposed */
@@ -588,13 +594,17 @@ export interface SandboxProvider {
   /** Provider capabilities */
   readonly capabilities: SandboxProviderCapabilities;
 
-  /** Reference and lifetime to persist before launch; neither confirms startup succeeded. */
+  /**
+   * Reference and lifetime to persist before launch; neither confirms startup succeeded.
+   * May be asynchronous: a provider that derives its reference with Web Crypto has no
+   * synchronous digest.
+   */
   pendingSandboxAllocation?(
     config: Pick<
       CreateSandboxConfig,
       "sessionId" | "sandboxId" | "generationCreatedAtMs" | "timeoutSeconds"
     >
-  ): PendingSandboxAllocation | undefined;
+  ): PendingSandboxAllocation | undefined | Promise<PendingSandboxAllocation | undefined>;
 
   /** Lookup only, for a VM launch whose response was lost. */
   resolveSandbox?(config: ResolveSandboxConfig): Promise<ResolveSandboxResult>;

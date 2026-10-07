@@ -139,7 +139,7 @@ export class VmStartupReconciliation {
     const { provider, storage, shutdown } = this.deps;
     if (!generation.sandboxId || config.sandboxId !== generation.sandboxId)
       throw new SpawnSupersededError();
-    const pending = provider.pendingSandboxAllocation?.(config);
+    const pending = await provider.pendingSandboxAllocation?.(config);
     if (!pending) return;
     const row = storage.getSandbox();
     if (
@@ -210,7 +210,7 @@ export class VmStartupReconciliation {
   ): Promise<ResolveSandboxResult | null> {
     const { provider, storage } = this.deps;
     if (!provider.resolveSandbox) return null;
-    const reference = provider.pendingSandboxAllocation?.(config)?.reference;
+    const reference = (await provider.pendingSandboxAllocation?.(config))?.reference;
     while (true) {
       const row = storage.getSandbox();
       const bridged = this.knownBridgeStartup(generation, row);
@@ -247,7 +247,7 @@ export class VmStartupReconciliation {
             current.modal_object_id &&
             parsePendingVmReference(current.modal_object_id) === null
           ) {
-            const lifetime = provider.pendingSandboxAllocation?.(config)?.lifetime;
+            const lifetime = (await provider.pendingSandboxAllocation?.(config))?.lifetime;
             if (lifetime)
               return {
                 sandboxId: config.sandboxId,
