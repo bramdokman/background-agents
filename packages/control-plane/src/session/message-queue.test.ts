@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createTestBackgroundTasks } from "../background-tasks.test-support";
-import { fingerprintWebPrompt, SessionMessageQueue } from "./message-queue";
+import { fingerprintWebPrompt, SessionMessageQueue, type UsageQuotaGate } from "./message-queue";
+import { UsageQuotaExceededError } from "../authorization/usage-quotas";
 import { AttachmentClaimConflictError } from "./session-attachment-repository";
 import type { SessionAttachmentRepository } from "./session-attachment-repository";
 import {
@@ -138,7 +139,8 @@ it("creates a canonical SHA-256 web prompt fingerprint", async () => {
 
 function buildQueue(
   mayDispatch: () => boolean = () => true,
-  getSandboxPromptBlockReason: () => string | null = () => null
+  getSandboxPromptBlockReason: () => string | null = () => null,
+  usageQuotas: UsageQuotaGate = { admitPrompt: vi.fn(async () => undefined) }
 ) {
   // Mutable so tests can pin that the deadline honors the value current at
   // dispatch time — the thunk exists because settings can be persisted after
@@ -304,11 +306,13 @@ function buildQueue(
     executionStop,
     () => executionTimeoutMs,
     mayDispatch,
-    getSandboxPromptBlockReason
+    getSandboxPromptBlockReason,
+    usageQuotas
   );
 
   return {
     queue,
+    usageQuotas,
     executionStop,
     repository,
     attachmentRepository,
@@ -2311,6 +2315,89 @@ describe("SessionMessageQueue", () => {
 
     expect(h.sandboxLifecycle.terminateFailedSandbox).toHaveBeenCalledWith("Sandbox crashed");
     expect(h.sandboxLifecycle.spawnSandbox).not.toHaveBeenCalled();
+  });
+
+  describe("usage quota admission", () => {
+    const exceeded = () =>
+      new UsageQuotaExceededError({
+        quota: {
+          id: "quota-1",
+          scopeKind: "user",
+          scopeId: "alice",
+          period: "day",
+          maxTurns: 3,
+          maxCostUsd: null,
+          maxTokens: null,
+          maxRunningSandboxes: null,
+          action: "block",
+          createdBy: "owner",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        window: { period: "day", startAt: 0, endAt: 86_400_000 },
+        usage: { turns: 3, tokens: 0, costUsd: 0 },
+        exceeded: ["turns"],
+      });
+
+    it("refuses an API prompt for the metered user before any message or sandbox work", async () => {
+      const admitPrompt = vi.fn(async () => {
+        throw exceeded();
+      });
+      const h = buildQueue(undefined, undefined, { admitPrompt });
+      h.participantService.getByUserId.mockReturnValue(
+        createParticipant({ user_id: "github:7", canonical_user_id: "alice" })
+      );
+
+      await expect(
+        h.queue.enqueuePromptFromApi({ content: "Continue", authorId: "github:7", source: "web" })
+      ).rejects.toMatchObject({
+        name: "UsageQuotaExceededError",
+        message:
+          "Usage quota reached: you used 3 of 3 turns today. The window resets at the next UTC day boundary.",
+      });
+
+      expect(admitPrompt).toHaveBeenCalledWith("alice");
+      expect(h.repository.createMessageWithAttachments).not.toHaveBeenCalled();
+      expect(h.sandboxLifecycle.spawnSandbox).not.toHaveBeenCalled();
+    });
+
+    it("answers a socket prompt with USAGE_QUOTA_EXCEEDED and enqueues nothing", async () => {
+      const h = buildQueue(undefined, undefined, {
+        admitPrompt: async () => {
+          throw exceeded();
+        },
+      });
+      const ws = {} as WebSocket;
+
+      await h.queue.handlePromptMessage(ws, createClientInfo(), {
+        content: "Continue",
+        clientRequestId: "req-1",
+      });
+
+      expect(h.wsManager.send).toHaveBeenCalledWith(ws, {
+        type: "error",
+        code: "USAGE_QUOTA_EXCEEDED",
+        message:
+          "Usage quota reached: you used 3 of 3 turns today. The window resets at the next UTC day boundary.",
+        clientRequestId: "req-1",
+      });
+      expect(h.repository.createMessageWithAttachments).not.toHaveBeenCalled();
+      expect(h.sandboxLifecycle.spawnSandbox).not.toHaveBeenCalled();
+    });
+
+    it("lets an admitted prompt through and meters it under the participant's canonical id", async () => {
+      const h = buildQueue();
+      h.participantService.getByUserId.mockReturnValue(
+        createParticipant({ user_id: "github:7", canonical_user_id: "alice" })
+      );
+      await h.queue.enqueuePromptFromApi({
+        content: "Continue",
+        authorId: "github:7",
+        source: "web",
+      });
+      expect(h.usageQuotas.admitPrompt).toHaveBeenCalledWith("alice");
+      expect(h.repository.createMessageWithAttachments).toHaveBeenCalledOnce();
+    });
   });
 
   describe("enqueuePromptFromApi", () => {

@@ -581,7 +581,21 @@ export function createSessionRuntime(platform: SessionPlatform, env: Env): Sessi
     executionStop,
     getExecutionTimeoutMs,
     () => lifecycleManager.mayProcessQueuedWork(),
-    () => sandboxPromptBlockReason(lifecycleManager.shutdownSnapshot())
+    () => sandboxPromptBlockReason(lifecycleManager.shutdownSnapshot()),
+    {
+      // The team comes from the global row, which the session's own storage
+      // does not hold; a prompt admitted over a socket has no request id.
+      admitPrompt: async (userId) => {
+        const sessionId = getPublicSessionId();
+        if (!sessionId) return;
+        await usageQuotas.admitPrompt({
+          userId,
+          teamId: await usageQuotas.sessionTeamId(sessionId),
+          sessionId,
+          requestId: crypto.randomUUID(),
+        });
+      },
+    }
   );
 
   // Tier 7 — services over the queue and lifecycle.

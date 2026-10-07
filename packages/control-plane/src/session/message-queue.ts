@@ -2,6 +2,7 @@ import {
   checkHarnessCompatibility,
   getValidHarnessOrDefault,
 } from "@open-inspect/shared/harnesses";
+import { UsageQuotaExceededError } from "../authorization/usage-quotas";
 import { generateId, hashToken } from "../auth/crypto";
 import type { SessionIndexStore } from "../db/session-index";
 import type { Logger } from "../logger";
@@ -149,6 +150,22 @@ function resolveParticipantGitIdentity(
     : { mode: "agent-only" };
 }
 
+/**
+ * Workspace usage-quota admission for one prompting user; throws
+ * `UsageQuotaExceededError` to refuse. The session budget below is per
+ * session; this is the per-user, per-team and workspace period limit.
+ */
+export interface UsageQuotaGate {
+  admitPrompt(userId: string): Promise<unknown>;
+}
+
+const NO_USAGE_QUOTA_GATE: UsageQuotaGate = { admitPrompt: async () => undefined };
+
+/** The identity a participant's usage is metered under. */
+function meteredUserId(participant: Pick<ParticipantRow, "user_id" | "canonical_user_id">) {
+  return participant.canonical_user_id ?? participant.user_id;
+}
+
 export class SessionMessageQueue {
   constructor(
     private readonly backgroundTasks: BackgroundTasks,
@@ -172,7 +189,8 @@ export class SessionMessageQueue {
     /** Resolved per use so it honors settings persisted after construction. */
     private readonly getExecutionTimeoutMs: () => number,
     private readonly mayDispatch: () => boolean,
-    private readonly getSandboxPromptBlockReason: () => string | null
+    private readonly getSandboxPromptBlockReason: () => string | null,
+    private readonly usageQuotas: UsageQuotaGate = NO_USAGE_QUOTA_GATE
   ) {}
 
   async enqueueAutofix(
@@ -273,6 +291,7 @@ export class SessionMessageQueue {
         this.assertQueueCapacity();
         participant = this.participantService.create(client.userId, client.name);
       }
+      await this.usageQuotas.admitPrompt(meteredUserId(participant));
       enqueued = await this.enqueuePromptCore({
         participant,
         userId: client.userId,
@@ -306,6 +325,15 @@ export class SessionMessageQueue {
         this.wsManager.send(ws, {
           type: "error",
           code: "SANDBOX_RECOVERY_REQUIRED",
+          message: error.message,
+          clientRequestId: data.clientRequestId,
+        });
+        return;
+      }
+      if (error instanceof UsageQuotaExceededError) {
+        this.wsManager.send(ws, {
+          type: "error",
+          code: "USAGE_QUOTA_EXCEEDED",
           message: error.message,
           clientRequestId: data.clientRequestId,
         });
@@ -744,6 +772,7 @@ export class SessionMessageQueue {
       participant = this.participantRepository.getParticipantById(participant.id) ?? participant;
     }
 
+    await this.usageQuotas.admitPrompt(meteredUserId(participant));
     const enqueued = await this.enqueuePromptCore({
       participant,
       userId: data.authorId,

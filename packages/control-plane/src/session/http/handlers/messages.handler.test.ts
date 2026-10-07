@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Logger } from "../../../logger";
 import { MessagesHandler } from "./messages.handler";
 import { SandboxPromptBlockedError } from "../../message-queue";
+import { UsageQuotaExceededError } from "../../../authorization/usage-quotas";
 import type { MessageService } from "../../services/message.service";
 import { MAX_WEB_PROMPT_CHARS } from "@open-inspect/shared/types/prompts";
 
@@ -52,6 +53,49 @@ describe("MessagesHandler", () => {
       error: "Start a new session to continue.",
     });
   });
+  it("returns 429 USAGE_QUOTA_EXCEEDED when a workspace usage quota refuses the prompt", async () => {
+    const { handler, messageService, log } = createHandler();
+    vi.mocked(messageService.enqueuePrompt).mockRejectedValue(
+      new UsageQuotaExceededError({
+        quota: {
+          id: "quota-1",
+          scopeKind: "team",
+          scopeId: "team-1",
+          period: "month",
+          maxTurns: null,
+          maxCostUsd: 50,
+          maxTokens: null,
+          maxRunningSandboxes: null,
+          action: "block",
+          createdBy: "owner",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        window: { period: "month", startAt: 0, endAt: 1 },
+        usage: { turns: 10, tokens: 0, costUsd: 50 },
+        exceeded: ["cost"],
+      })
+    );
+
+    const response = await handler.enqueuePrompt(
+      new Request("http://internal/internal/prompt", {
+        method: "POST",
+        body: JSON.stringify({ content: "Continue", authorId: "user-1", source: "web" }),
+      }),
+      log
+    );
+
+    expect(response.status).toBe(429);
+    await expect(response.json()).resolves.toEqual({
+      code: "USAGE_QUOTA_EXCEEDED",
+      error:
+        "Usage quota reached: your team used $50.00 of $50.00 this month. The window resets at the next UTC month boundary.",
+      scopeKind: "team",
+      period: "month",
+      exceeded: ["cost"],
+    });
+  });
+
   it("enqueues prompt and returns queued response", async () => {
     const { handler, messageService, log } = createHandler();
     vi.mocked(messageService.enqueuePrompt).mockResolvedValue({
