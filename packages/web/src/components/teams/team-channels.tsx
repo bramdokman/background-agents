@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import type { BindingEditor } from "./channel-binding-editors/binding-editor";
 import { useLinearBindingEditor } from "./channel-binding-editors/linear-binding-editor";
+import { useMsTeamsBindingEditor } from "./channel-binding-editors/msteams-binding-editor";
 import { useSlackBindingEditor } from "./channel-binding-editors/slack-binding-editor";
 
 export function TeamChannels({ team }: { team: TeamResponse }) {
@@ -55,6 +56,7 @@ export function TeamChannels({ team }: { team: TeamResponse }) {
         data?.bindings.some((binding) => binding.provider === "slack") === true,
     }),
     linear: useLinearBindingEditor({ id, disabled }),
+    msteams: useMsTeamsBindingEditor({ id, disabled }),
   };
   const editor = editors[provider];
   const providerDisabled = disabled || editor.locked;
@@ -98,8 +100,9 @@ export function TeamChannels({ team }: { team: TeamResponse }) {
         Channels
       </h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        Bind Slack channels or Linear teams to this team. Primary marks the team&apos;s main binding
-        for each provider; source bindings also route new sessions to the team.
+        Bind Slack channels, Linear teams or Microsoft Teams channels to this team. Primary marks
+        the team&apos;s main binding for each provider; source bindings also route new sessions to
+        the team.
       </p>
       <form
         className="my-4 space-y-3 rounded-md border border-border-muted p-4"

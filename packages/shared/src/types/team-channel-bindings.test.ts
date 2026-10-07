@@ -25,8 +25,17 @@ describe("team channel binding contracts", () => {
   );
 
   it("validates lists and minimal service lookup responses", () => {
-    const bindings = [binding, { ...binding, provider: "linear" }];
+    const bindings = [
+      binding,
+      { ...binding, provider: "linear" },
+      { ...binding, provider: "msteams", externalId: "19:a1b2c3d4e5f6@thread.tacv2" },
+    ];
     expect(teamChannelBindingsResponseSchema.parse({ bindings })).toEqual({ bindings });
+    expect(
+      teamChannelBindingsResponseSchema.safeParse({
+        bindings: [{ ...binding, provider: "discord" }],
+      }).success
+    ).toBe(false);
     expect(channelBindingResponseSchema.parse({ teamId: null })).toEqual({ teamId: null });
     expect(channelBindingResponseSchema.parse({ teamId: binding.teamId, kind: "source" })).toEqual({
       teamId: binding.teamId,

@@ -278,6 +278,47 @@ describe("Team channels", () => {
     await act(async () => finishDiscovery(Response.json({ channels })));
   });
 
+  it("binds and unbinds a Microsoft Teams channel by its ID without Slack discovery", async () => {
+    const channelId = "19:a1b2c3d4e5f6@thread.tacv2";
+    const msteams = { provider: "msteams", externalId: channelId, teamId: team.id, kind: "source" };
+    render(<TeamChannels team={team} />, { wrapper });
+    await screen.findByText("No channel bindings yet.");
+    await chooseOption("Provider", "Microsoft Teams");
+    expect(screen.queryByPlaceholderText("Search channels...")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Bind channel" })).toBeDisabled();
+    fireEvent.change(screen.getByRole("textbox", { name: "Microsoft Teams channel ID" }), {
+      target: { value: ` ${channelId} ` },
+    });
+    listedBindings = [msteams];
+    vi.mocked(browserApiFetch).mockClear();
+    vi.mocked(browserApiFetch).mockResolvedValueOnce(Response.json({ ok: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Bind channel" }));
+    const unbind = await screen.findByRole("button", {
+      name: `Unbind Microsoft Teams channel ${channelId}`,
+    });
+    expect(screen.getByRole("textbox", { name: "Microsoft Teams channel ID" })).toHaveValue("");
+    const rows = within(screen.getByRole("list", { name: "Channel bindings" }));
+    expect(rows.getByText(channelId)).toBeInTheDocument();
+    expect(rows.getByText("Microsoft Teams")).toBeInTheDocument();
+    expect(browserApiFetch).toHaveBeenCalledWith(
+      `${key}/msteams/${encodeURIComponent(channelId)}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "source" }),
+      }
+    );
+    await waitFor(() => expect(unbind).toBeEnabled());
+    listedBindings = [];
+    vi.mocked(browserApiFetch).mockResolvedValueOnce(new Response(null, { status: 204 }));
+    fireEvent.click(unbind);
+    await screen.findByText("No channel bindings yet.");
+    expect(browserApiFetch).toHaveBeenCalledWith(
+      `${key}/msteams/${encodeURIComponent(channelId)}`,
+      { method: "DELETE" }
+    );
+  });
+
   it("preserves a refused Linear draft and withholds controls when capabilities are revoked", async () => {
     const view = render(<TeamChannels team={team} />, { wrapper });
     await screen.findByText("No channel bindings yet.");

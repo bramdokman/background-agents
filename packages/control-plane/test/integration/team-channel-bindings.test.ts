@@ -18,6 +18,8 @@ import { routeRequest, serviceFetch, serviceRequestHeaders, sqlDatabase } from "
 const BASE = "https://test.local";
 const OWNER = "11111111111111111111111111111111";
 const SLACK_SERVICE_SECRET = "test-channel-info-service-secret";
+/** A Teams channel id as `channelData.channel.id` carries it; ':' and '@' are encoded in a path. */
+const MSTEAMS_CHANNEL_ID = "19:a1b2c3d4e5f6@thread.tacv2";
 const actor = { actorUserId: OWNER, requestId: "binding-request" };
 
 async function createTeam(slug: string) {
@@ -62,12 +64,21 @@ describe("team channel binding store", () => {
     expect(await store.get("slack", "C123")).toBeNull();
     const slack = slackBinding(team.id, "primary");
     const linear: TeamChannelBinding = { ...slack, provider: "linear", kind: "source" };
+    const msteams: TeamChannelBinding = {
+      provider: "msteams",
+      externalId: MSTEAMS_CHANNEL_ID,
+      teamId: team.id,
+      kind: "primary",
+    };
     await store.put(slack, actor);
     await store.put(linear, actor);
+    await store.put(msteams, actor);
     await store.put({ ...slack, externalId: "C456", teamId: other.id }, actor);
     expect(await store.get("slack", "C123")).toEqual(slack);
     expect(await store.get("linear", "C123")).toEqual(linear);
-    expect(await store.listByTeam(team.id)).toEqual([linear, slack]);
+    expect(await store.get("msteams", MSTEAMS_CHANNEL_ID)).toEqual(msteams);
+    expect(await store.get("msteams", "C123")).toBeNull();
+    expect(await store.listByTeam(team.id)).toEqual([linear, msteams, slack]);
   });
 
   it("rejects cross-team rebinding and a second primary without auditing failed writes", async () => {
@@ -249,6 +260,34 @@ describe("team channel binding routes", () => {
     expect(await (await request(path)).json()).toEqual({ bindings: [] });
   });
 
+  it("round-trips Microsoft Teams channel bindings without Slack credentials or channel verification", async () => {
+    const team = await createTeam("engineering");
+    const path = `/teams/${team.id}/channel-bindings`;
+    const channelPath = `${path}/msteams/${encodeURIComponent(MSTEAMS_CHANNEL_ID)}`;
+    const fetch = vi.fn();
+    const overrides = { SLACK_BOT: undefined, SERVICE_AUTH_SECRET_SLACK_BOT: undefined };
+    for (const kind of ["primary", "source"] as const) {
+      const response = await request(channelPath, "PUT", { kind }, overrides, fetch);
+      expect(response.status).toBe(200);
+      const binding = {
+        provider: "msteams",
+        externalId: MSTEAMS_CHANNEL_ID,
+        teamId: team.id,
+        kind,
+      };
+      expect(await response.json()).toEqual({ binding });
+      expect(await (await request(path)).json()).toEqual({ bindings: [binding] });
+      expect(await new TeamChannelBindingStore(env.DB).get("msteams", MSTEAMS_CHANNEL_ID)).toEqual(
+        binding
+      );
+    }
+    expect(fetch).not.toHaveBeenCalled();
+    expect(await bindingAudits(team.id)).toHaveLength(2);
+    expect((await request(channelPath, "DELETE")).status).toBe(204);
+    expect(await (await request(path)).json()).toEqual({ bindings: [] });
+    expect(await new TeamChannelBindingStore(env.DB).get("msteams", MSTEAMS_CHANNEL_ID)).toBeNull();
+  });
+
   it.each([
     { ...channelInfo, isMember: false },
     { ...channelInfo, isExtShared: true },
@@ -312,7 +351,7 @@ describe("team channel binding routes", () => {
     vi.stubGlobal("fetch", slackFetch);
     for (const mode of ["off", "shadow", "on"]) {
       for (const method of ["GET", "PUT", "DELETE"]) {
-        for (const provider of ["slack", "linear"]) {
+        for (const provider of ["slack", "linear", "msteams"]) {
           const path = `/teams/${team.id}/channel-bindings${method === "GET" ? "" : `/${provider}/C123`}`;
           const denied = await request(
             path,
@@ -404,7 +443,7 @@ describe("team channel binding routes", () => {
     });
   });
 
-  it.each(["slack", "linear"] as const)(
+  it.each(["slack", "linear", "msteams"] as const)(
     "returns %s conflicts without disclosing another team's identity",
     async (provider) => {
       const team = await createTeam("engineering");
@@ -439,7 +478,7 @@ describe("team channel binding routes", () => {
         ).status
       ).toBe(400);
     }
-    for (const provider of ["slack", "linear"]) {
+    for (const provider of ["slack", "linear", "msteams"]) {
       expect(
         (
           await request(

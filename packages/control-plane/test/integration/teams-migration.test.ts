@@ -47,6 +47,48 @@ describe("team migration constraints", () => {
     ).run();
   });
 
+  it("binds Microsoft Teams channels, rejects unknown providers, and keeps one primary per provider", async () => {
+    await env.DB.prepare(
+      "INSERT INTO teams (id, slug, name, created_at, updated_at) VALUES ('team_msteams', 'msteams', 'Teams', 1, 1)"
+    ).run();
+    await env.DB.prepare(
+      "INSERT INTO team_channel_bindings (provider, external_id, team_id, created_at) VALUES ('msteams', '19:a1b2c3d4e5f6@thread.tacv2', 'team_msteams', 1)"
+    ).run();
+    await expect(
+      env.DB.prepare(
+        "INSERT INTO team_channel_bindings (provider, external_id, team_id, created_at) VALUES ('discord', '123456', 'team_msteams', 1)"
+      ).run()
+    ).rejects.toThrow();
+    await env.DB.prepare(
+      "INSERT INTO team_channel_bindings (provider, external_id, team_id, kind, created_at) VALUES ('msteams', '19:second@thread.tacv2', 'team_msteams', 'primary', 1)"
+    ).run();
+    await expect(
+      env.DB.prepare(
+        "INSERT INTO team_channel_bindings (provider, external_id, team_id, kind, created_at) VALUES ('msteams', '19:third@thread.tacv2', 'team_msteams', 'primary', 1)"
+      ).run()
+    ).rejects.toThrow();
+    expect(
+      (
+        await env.DB.prepare(
+          "SELECT provider, external_id, team_id, kind FROM team_channel_bindings ORDER BY external_id"
+        ).all()
+      ).results
+    ).toEqual([
+      {
+        provider: "msteams",
+        external_id: "19:a1b2c3d4e5f6@thread.tacv2",
+        team_id: "team_msteams",
+        kind: "source",
+      },
+      {
+        provider: "msteams",
+        external_id: "19:second@thread.tacv2",
+        team_id: "team_msteams",
+        kind: "primary",
+      },
+    ]);
+  });
+
   it("cascades archived-team dependents and session collaborators", async () => {
     await env.DB.prepare(
       "INSERT INTO users (id, created_at, updated_at) VALUES ('team-user', 1, 1)"

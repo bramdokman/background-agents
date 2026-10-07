@@ -3,10 +3,7 @@ import {
   DEFAULT_LINEAR_UNBOUND_CHANNELS,
   DEFAULT_SLACK_UNBOUND_CHANNELS,
 } from "@open-inspect/shared/types/integrations";
-import {
-  channelBindingResponseSchema,
-  type TeamChannelBindingProvider,
-} from "@open-inspect/shared/types/team-channel-bindings";
+import { channelBindingResponseSchema } from "@open-inspect/shared/types/team-channel-bindings";
 import { IntegrationSettingsStore } from "../db/integration-settings";
 import { TeamChannelBindingStore } from "../db/team-channel-bindings";
 import type { RequestContext } from "../http/request-context";
@@ -14,12 +11,12 @@ import { admit, dispatch } from "../routing/admit";
 import type { ControlPlaneHonoEnv } from "../routing/hono-env";
 import { error, json, serviceAuthorized } from "./shared";
 
+/** The providers whose bot looks bindings up here; each has an `unboundChannels` policy. */
+const LOOKUP_PROVIDERS = ["slack", "linear"] as const;
+type LookupProvider = (typeof LOOKUP_PROVIDERS)[number];
+
 /** Route admission already matched the calling bot to `provider`. */
-async function getBinding(
-  provider: TeamChannelBindingProvider,
-  externalId: string,
-  ctx: RequestContext
-) {
+async function getBinding(provider: LookupProvider, externalId: string, ctx: RequestContext) {
   try {
     const binding = await new TeamChannelBindingStore(ctx.db).get(provider, externalId);
     if (binding) {
@@ -44,7 +41,7 @@ async function getBinding(
 }
 
 export const channelBindingRoutes = new Hono<ControlPlaneHonoEnv>();
-for (const provider of ["slack", "linear"] as const) {
+for (const provider of LOOKUP_PROVIDERS) {
   channelBindingRoutes.get(
     `/channel-bindings/${provider}/:externalId`,
     admit({

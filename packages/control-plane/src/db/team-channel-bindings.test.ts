@@ -9,6 +9,8 @@ const binding = {
   kind: "source",
 } as const;
 const actor = { requestId: "binding-request", actorUserId: "lead" };
+/** A Teams channel id as `channelData.channel.id` carries it. */
+const MSTEAMS_CHANNEL_ID = "19:a1b2c3d4e5f6@thread.tacv2";
 
 function database(rows: unknown[] = []) {
   const prepare = vi.fn((_sql: string): SqlStatement => {
@@ -33,6 +35,10 @@ describe("TeamChannelBindingStore", () => {
     expect(await new TeamChannelBindingStore(db).get("slack", "C123")).toEqual(binding);
     expect(prepare.mock.results[0]!.value.bind).toHaveBeenCalledWith("slack", "C123");
     expect(await new TeamChannelBindingStore(database().db).get("linear", "C123")).toBeNull();
+    const msteams = { ...binding, provider: "msteams", externalId: MSTEAMS_CHANNEL_ID } as const;
+    expect(
+      await new TeamChannelBindingStore(database([msteams]).db).get("msteams", MSTEAMS_CHANNEL_ID)
+    ).toEqual(msteams);
     await expect(
       new TeamChannelBindingStore(database([{ ...binding, kind: "unknown" }]).db).get(
         "slack",

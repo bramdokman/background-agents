@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const teamChannelBindingProviderSchema = z.enum(["slack", "linear"]);
+export const teamChannelBindingProviderSchema = z.enum(["slack", "linear", "msteams"]);
 export const teamChannelBindingKindSchema = z.enum(["primary", "source"]);
 
 export const teamChannelBindingSchema = z.strictObject({
