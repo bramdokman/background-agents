@@ -33,6 +33,17 @@ export interface BootstrapSql {
   execution: readonly [string, string, string];
 }
 
+/** The preflight row, and the final row of the execution batch. */
+export interface BootstrapReport {
+  report: "preflight" | "postcondition";
+  status: "ready" | "no-op" | "refused" | "executed";
+  detail?: string;
+  user_id: string;
+  suspended_at: number | null;
+  role_id: string | null;
+  audit_written?: number;
+}
+
 function sqlLiteral(value: string | number): string {
   if (typeof value === "number") {
     if (!Number.isSafeInteger(value)) throw new Error(`Unsafe SQL integer: ${value}`);

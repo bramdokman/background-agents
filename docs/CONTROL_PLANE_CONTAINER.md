@@ -83,6 +83,85 @@ SERVICE_AUTH_SECRET=<the SERVICE_AUTH_SECRET_WEB value from .env>
 Then `npm run dev -w @open-inspect/web`. The container's `WEB_APP_URL` must be the web app's origin
 (`http://localhost:3000` by default), because browser sign-in is origin-bound.
 
+## Bootstrapping the workspace Owner
+
+New users get the Member role, which cannot manage secrets, models or members, and Owner assignment
+is an explicit operator action (Step 9 of [GETTING_STARTED.md](./GETTING_STARTED.md)). The command
+documented there targets D1 through Wrangler; the container ships its own,
+`dist/node/bootstrap-owner.js`, which runs the same bootstrap against `global.db` on the data volume
+with the same preflight, refusals and audit event.
+
+1. Have the intended Owner sign in to the web app once, then record the 32-character `user.id` from
+   `/api/auth/get-session` on the web app origin. The command takes this canonical ID, never an
+   email address.
+2. Run the dry run (the default) in the app container:
+
+   ```bash
+   docker compose exec app \
+     node /app/packages/control-plane/dist/node/bootstrap-owner.js --user "<canonical-user-id>"
+   ```
+
+3. If the preflight row reports `"status":"ready"`, execute:
+
+   ```bash
+   docker compose exec app \
+     node /app/packages/control-plane/dist/node/bootstrap-owner.js --user "<canonical-user-id>" --execute
+   ```
+
+4. Rerun the dry run and expect `"status":"no-op"`; the command then prints `Nothing to do` and
+   exits 0, so it is safe to run again.
+
+`refused` exits non-zero with the reason: a user who has not signed in, a suspended user, a missing
+or ambiguous role assignment, or another unsuspended Owner. There is no force option, and the
+command never demotes anyone. It reads `DATA_DIR` as the host does (`/data` in the image);
+`--data-dir <dir>` overrides it. It does not create or migrate the store: a missing `global.db` is
+an error, and a store the host has not migrated yet fails the preflight rather than being changed
+under a running host. The host can stay up while it runs; the write waits for the host's own writes
+the same way two host connections would.
+
+On Kubernetes, run it as a Job from the control-plane image, mounting the same volume the control
+plane uses. The image's `node` user owns `/data`, so the Job runs as that user:
+
+```yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: control-plane-bootstrap-owner
+spec:
+  backoffLimit: 0 # a refusal is a decision, not a transient failure
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: bootstrap-owner
+          image: <control-plane image, the same tag the control plane runs>
+          command:
+            - node
+            - /app/packages/control-plane/dist/node/bootstrap-owner.js
+            - --user
+            - <canonical-user-id>
+            - --execute
+          env:
+            - name: DATA_DIR
+              value: /data
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: <the control plane's /data claim>
+```
+
+A `ReadWriteOnce` claim can be mounted on one node at a time, so give the Job a `podAffinity` to the
+control-plane pod (or a `nodeName`) so it lands beside it.
+`kubectl logs job/control-plane-bootstrap-owner` shows the preflight and postcondition rows; drop
+`--execute` for a dry run.
+
 ## Reaching the container from a sandbox
 
 A sandbox connects back to the control plane over a WebSocket at `WORKER_URL`, so that URL has to be

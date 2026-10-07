@@ -186,6 +186,9 @@ export const NODE_HOST_VARIABLE_NAMES = [
   "SHUTDOWN_TIMEOUT_MS",
 ] as const;
 
+/** The global store's file name under `DATA_DIR` (the tables D1 holds on Cloudflare). */
+export const GLOBAL_STORE_FILE = "global.db";
+
 /** What the process itself needs: where to listen and where its files live. */
 export interface NodeHostSettings {
   /** Interface to listen on; `HOST`, else DEFAULT_HOST. */

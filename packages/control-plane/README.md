@@ -319,7 +319,8 @@ npm install
 
 ```bash
 npm run build
-# Outputs the Worker bundle to dist/index.js and the Node host to dist/node/main.js
+# Outputs the Worker bundle to dist/index.js, and the Node host and its Owner bootstrap
+# command to dist/node/main.js and dist/node/bootstrap-owner.js
 ```
 
 ### Run as a container

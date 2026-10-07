@@ -693,7 +693,10 @@ Steps 9 and 10.
 
 ## Step 9: Bootstrap the Workspace Owner
 
-Owner assignment is an explicit operator action. After the web app is deployed and verified:
+Owner assignment is an explicit operator action. After the web app is deployed and verified (on the
+container deployment, use the command in
+[CONTROL_PLANE_CONTAINER.md](./CONTROL_PLANE_CONTAINER.md#bootstrapping-the-workspace-owner) instead
+of the Wrangler one below):
 
 1. Have the intended Owner sign in to the deployed web application once. This creates their
    canonical user and default role assignment.
