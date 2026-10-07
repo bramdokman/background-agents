@@ -141,6 +141,7 @@ openssl rand -base64 32 | put SERVICE_AUTH_SECRET_WEB
 openssl rand -base64 32 | put SERVICE_AUTH_SECRET_SLACK_BOT
 openssl rand -base64 32 | put SERVICE_AUTH_SECRET_GITHUB_BOT
 openssl rand -base64 32 | put SERVICE_AUTH_SECRET_LINEAR_BOT
+openssl rand -base64 32 | put SERVICE_AUTH_SECRET_TEAMS_BOT
 
 # The sandbox provider. Both environments select Modal, and this is the shared
 # HMAC secret between the control plane and the Modal deployment; without it the

@@ -49,6 +49,7 @@ export const ANALYTICS_SOURCE_LABELS: Record<SpawnSource, string> = {
   "slack-bot": "Slack",
   "github-bot": "GitHub",
   "linear-bot": "Linear",
+  "teams-bot": "Microsoft Teams",
   agent: "Agent sub-sessions",
   automation: "Automations",
 };

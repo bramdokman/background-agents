@@ -661,7 +661,7 @@ describe("service channel binding lookup", () => {
       expect(response.headers.get("Cache-Control")).toBe("private, no-store");
       const binding = vi.spyOn(TeamChannelBindingStore.prototype, "get");
       const settings = vi.spyOn(IntegrationSettingsStore.prototype, "getGlobal");
-      for (const service of ["slack-bot", "github-bot", "linear-bot"] as const) {
+      for (const service of ["slack-bot", "github-bot", "linear-bot", "teams-bot"] as const) {
         if (service === matchingService) continue;
         const endpoint = `${BASE}/channel-bindings/${provider}/C123`;
         const denied = await routeRequest(
@@ -685,6 +685,36 @@ describe("service channel binding lookup", () => {
       expect(settings).not.toHaveBeenCalled();
     }
   );
+
+  it("serves msteams lookups to the teams bot alone and refuses unbound channels", async () => {
+    const team = await createTeam("engineering");
+    const endpoint = `${BASE}/channel-bindings/msteams/${encodeURIComponent(MSTEAMS_CHANNEL_ID)}`;
+    const settings = vi.spyOn(IntegrationSettingsStore.prototype, "getGlobal");
+    const unbound = await serviceFetch(endpoint, { service: "teams-bot" });
+    expect(unbound.status).toBe(404);
+    expect(await unbound.json()).toEqual({
+      error: "Channel is not bound",
+      code: "channel_unbound",
+    });
+    await new TeamChannelBindingStore(env.DB).put(
+      { provider: "msteams", externalId: MSTEAMS_CHANNEL_ID, teamId: team.id, kind: "primary" },
+      actor
+    );
+    const bound = await serviceFetch(endpoint, { service: "teams-bot" });
+    expect(bound.status).toBe(200);
+    expect(await bound.json()).toEqual({ teamId: team.id, kind: "primary" });
+    expect(bound.headers.get("Cache-Control")).toBe("private, no-store");
+    // Teams has no integration settings: the policy is the fixed default, never a store read.
+    expect(settings).not.toHaveBeenCalled();
+    for (const service of ["slack-bot", "github-bot", "linear-bot"] as const) {
+      const denied = await serviceFetch(endpoint, { service });
+      expect(denied.status, service).toBe(403);
+      expect(await denied.json()).toMatchObject({ code: "service_capability_required" });
+    }
+    const owner = await serviceFetch(endpoint);
+    expect(owner.status).toBe(403);
+    expect(await owner.json()).toMatchObject({ code: "service_capability_required" });
+  });
 
   it.each(["slack", "linear"] as const)(
     "denies human owners and custom-role readers of %s bindings",
@@ -735,6 +765,12 @@ describe("service channel binding lookup", () => {
       providerUserId: "binding-reader",
     },
     { service: "github-bot", provider: "github", bindingProvider: "linear", providerUserId: "208" },
+    {
+      service: "teams-bot",
+      provider: "microsoft",
+      bindingProvider: "slack",
+      providerUserId: "4f1c2d3e-5a6b-4c7d-8e9f-0a1b2c3d4e5f",
+    },
   ] as const)(
     "denies $service reading $bindingProvider bindings even with an owner actor",
     async ({ service, provider, bindingProvider, providerUserId }) => {

@@ -28,6 +28,7 @@ import {
   scmSettingsSchema,
   DEFAULT_SLACK_UNBOUND_CHANNELS,
   DEFAULT_LINEAR_UNBOUND_CHANNELS,
+  DEFAULT_MSTEAMS_UNBOUND_CHANNELS,
   linearBotGlobalSettingsSchema,
   linearBotSettingsSchema,
   slackGlobalSettingsSchema,
@@ -68,6 +69,7 @@ describe("Linear unbound channel policy", () => {
 
   it("defaults to workspace ownership without changing stored optional settings", () => {
     expect(DEFAULT_LINEAR_UNBOUND_CHANNELS).toBe(DEFAULT_SLACK_UNBOUND_CHANNELS);
+    expect(DEFAULT_MSTEAMS_UNBOUND_CHANNELS).toBe("reject");
     expect(linearBotGlobalSettingsSchema.parse({})).toEqual({});
     expect(integrationSettingsSchemas.linear.global.parse({ defaults: {} })).toEqual({
       defaults: {},

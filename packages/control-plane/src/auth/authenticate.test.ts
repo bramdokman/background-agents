@@ -18,6 +18,7 @@ const SECRETS = {
   SERVICE_AUTH_SECRET_SLACK_BOT: "slack-secret",
   SERVICE_AUTH_SECRET_GITHUB_BOT: "github-secret",
   SERVICE_AUTH_SECRET_LINEAR_BOT: "linear-secret",
+  SERVICE_AUTH_SECRET_TEAMS_BOT: "teams-secret",
 };
 
 const SERVICE_SECRET: Record<ServiceName, string> = {
@@ -25,7 +26,11 @@ const SERVICE_SECRET: Record<ServiceName, string> = {
   "slack-bot": SECRETS.SERVICE_AUTH_SECRET_SLACK_BOT,
   "github-bot": SECRETS.SERVICE_AUTH_SECRET_GITHUB_BOT,
   "linear-bot": SECRETS.SERVICE_AUTH_SECRET_LINEAR_BOT,
+  "teams-bot": SECRETS.SERVICE_AUTH_SECRET_TEAMS_BOT,
 };
+
+/** An Entra object id, the subject the Microsoft sign-in stores and a Teams bot asserts. */
+const MICROSOFT_OBJECT_ID = "4f1c2d3e-5a6b-4c7d-8e9f-0a1b2c3d4e5f";
 
 function createCtx(identityRow: Record<string, unknown> | null = null): RequestContext {
   const statement = {
@@ -137,6 +142,37 @@ describe("authenticate — service credentials", () => {
         providerUserId: "U0123456",
         canonicalUserId: "user-1",
         participantUserId: "slack:U0123456",
+      },
+    });
+  });
+
+  it("resolves a teams-bot microsoft actor against the identity holding that object id", async () => {
+    const ctx = createCtx({
+      id: "ident-2",
+      user_id: "user-2",
+      provider: "microsoft",
+      provider_user_id: MICROSOFT_OBJECT_ID,
+      provider_login: null,
+      provider_email: null,
+      created_at: 1,
+    });
+    const request = await signedRequest({
+      service: "teams-bot",
+      body: "{}",
+      actor: `microsoft:${MICROSOFT_OBJECT_ID}`,
+    });
+    const result = await authenticate(request, createEnv(), ctx);
+
+    expect(isAuthError(result)).toBe(false);
+    if (isAuthError(result)) return;
+    expect(result.principal).toEqual({
+      kind: "service",
+      service: "teams-bot",
+      actor: {
+        provider: "microsoft",
+        providerUserId: MICROSOFT_OBJECT_ID,
+        canonicalUserId: "user-2",
+        participantUserId: `microsoft:${MICROSOFT_OBJECT_ID}`,
       },
     });
   });
@@ -281,7 +317,9 @@ describe("authenticate — service credentials", () => {
       { service: "slack-bot", actor: "github:1" },
       { service: "github-bot", actor: "linear:usr_1" },
       { service: "linear-bot", actor: "slack:U1" },
-      { service: "slack-bot", actor: "microsoft:4f1c2d3e-5a6b-4c7d-8e9f-0a1b2c3d4e5f" },
+      { service: "slack-bot", actor: `microsoft:${MICROSOFT_OBJECT_ID}` },
+      { service: "teams-bot", actor: "slack:U1" },
+      { service: "teams-bot", actor: "msteams:29:1abc" },
       { service: "slack-bot", actor: "malformed" },
     ];
     for (const { service, actor } of cases) {

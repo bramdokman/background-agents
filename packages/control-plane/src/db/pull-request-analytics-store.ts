@@ -62,7 +62,15 @@ const repoRowSchema = z.object({
 });
 
 const sourceRowSchema = z.object({
-  source: z.enum(["user", "agent", "automation", "github-bot", "linear-bot", "slack-bot"]),
+  source: z.enum([
+    "user",
+    "agent",
+    "automation",
+    "github-bot",
+    "linear-bot",
+    "slack-bot",
+    "teams-bot",
+  ]),
   created: z.number(),
   merged: z.number(),
 });

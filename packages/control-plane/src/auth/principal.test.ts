@@ -24,6 +24,7 @@ describe("actor namespaces", () => {
       "slack-bot": "slack",
       "github-bot": "github",
       "linear-bot": "linear",
+      "teams-bot": "microsoft",
     });
   });
 });

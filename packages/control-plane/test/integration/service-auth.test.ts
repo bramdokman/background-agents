@@ -19,7 +19,22 @@ const SERVICE_SECRET: Record<ServiceName, string> = {
   "slack-bot": "test-service-secret-slack-bot",
   "github-bot": "test-service-secret-github-bot",
   "linear-bot": "test-service-secret-linear-bot",
+  "teams-bot": "test-service-secret-teams-bot",
 };
+
+/** Entra object ids: the subject a Microsoft web sign-in stores and a Teams bot asserts. */
+const SIGNED_IN_OBJECT_ID = "4f1c2d3e-5a6b-4c7d-8e9f-0a1b2c3d4e5f";
+const UNKNOWN_OBJECT_ID = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+
+async function identityTableCounts() {
+  return env.DB.prepare(
+    `SELECT
+       (SELECT COUNT(*) FROM sessions) AS sessions,
+       (SELECT COUNT(*) FROM users) AS users,
+       (SELECT COUNT(*) FROM user_identities) AS identities,
+       (SELECT COUNT(*) FROM user_role_assignments) AS assignments`
+  ).first<{ sessions: number; users: number; identities: number; assignments: number }>();
+}
 
 async function signedFetch(p: {
   service: ServiceName;
@@ -615,6 +630,113 @@ describe("sig1 service-credential authentication", () => {
         userId: string;
       }>()
     ).resolves.toEqual({ title: "Readable after claim extraction", userId: member.id });
+  });
+
+  it("creates a session for a microsoft actor whose object id a web sign-in enrolled", async () => {
+    const users = new UserStore(env.DB);
+    const member = await users.createUser({
+      displayName: "Signed-in Member",
+      email: "member@corp.test",
+      emailVerified: true,
+    });
+    await env.DB.prepare("UPDATE user_role_assignments SET role_id = ? WHERE user_id = ?")
+      .bind("role_builtin_member", member.id)
+      .run();
+    await users.createIdentity({
+      userId: member.id,
+      provider: "microsoft",
+      providerUserId: SIGNED_IN_OBJECT_ID,
+    });
+
+    const response = await signedFetch({
+      service: "teams-bot",
+      method: "POST",
+      url: "https://test.local/sessions",
+      actor: `microsoft:${SIGNED_IN_OBJECT_ID}`,
+      body: JSON.stringify({
+        title: "Started from Teams",
+        model: "anthropic/claude-haiku-4-5",
+        actorDisplayName: "Asserted Name",
+        actorEmail: "someone-else@corp.test",
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    await expect(
+      env.DB.prepare("SELECT title, user_id AS userId FROM sessions").first<{
+        title: string;
+        userId: string;
+      }>()
+    ).resolves.toEqual({ title: "Started from Teams", userId: member.id });
+    // The bot's profile claims are not evidence: the sign-in's name and email stand.
+    await expect(users.getUserById(member.id)).resolves.toMatchObject({
+      displayName: "Signed-in Member",
+      email: "member@corp.test",
+    });
+    await expect(identityTableCounts()).resolves.toEqual({
+      sessions: 1,
+      users: 1,
+      identities: 1,
+      assignments: 1,
+    });
+  });
+
+  it("refuses a microsoft actor no web sign-in enrolled and creates nothing", async () => {
+    const users = new UserStore(env.DB);
+    const member = await users.createUser({
+      displayName: "Existing Member",
+      email: "member@corp.test",
+      emailVerified: true,
+    });
+    await env.DB.prepare("UPDATE user_role_assignments SET role_id = ? WHERE user_id = ?")
+      .bind("role_builtin_member", member.id)
+      .run();
+
+    const response = await signedFetch({
+      service: "teams-bot",
+      method: "POST",
+      url: "https://test.local/sessions",
+      actor: `microsoft:${UNKNOWN_OBJECT_ID}`,
+      body: JSON.stringify({
+        title: "Must not be created",
+        model: "anthropic/claude-haiku-4-5",
+        // An attested-looking email selects nobody: only the stored object id does.
+        actorEmail: "member@corp.test",
+      }),
+    });
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: "Forbidden",
+      code: "service_actor_not_enrolled",
+    });
+    await expect(users.getIdentity("microsoft", UNKNOWN_OBJECT_ID)).resolves.toBeNull();
+    await expect(identityTableCounts()).resolves.toEqual({
+      sessions: 0,
+      users: 1,
+      identities: 0,
+      assignments: 1,
+    });
+    const audits = await env.DB.prepare(
+      `SELECT action, actor_service_snapshot, operation_result, metadata_json
+       FROM authorization_audit_events WHERE reason_code = 'service_actor_not_enrolled'`
+    ).all<{
+      action: string;
+      actor_service_snapshot: string;
+      operation_result: string;
+      metadata_json: string;
+    }>();
+    expect(audits.results).toHaveLength(1);
+    expect(audits.results[0]).toMatchObject({
+      action: "authorization.request_denied",
+      actor_service_snapshot: "teams-bot",
+      operation_result: "denied",
+    });
+    expect(JSON.parse(audits.results[0]!.metadata_json).actor).toEqual({
+      provider: "microsoft",
+      providerUserId: UNKNOWN_OBJECT_ID,
+      participantUserId: `microsoft:${UNKNOWN_OBJECT_ID}`,
+    });
   });
 
   it("denies a first-contact Linear actor whose attested email selects a suspended Member", async () => {

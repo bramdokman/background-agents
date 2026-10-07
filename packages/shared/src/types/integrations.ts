@@ -125,6 +125,14 @@ export const linearUnboundChannelsSchema = z.enum(["workspace", "reject"]);
 export type LinearUnboundChannels = z.infer<typeof linearUnboundChannelsSchema>;
 export const DEFAULT_LINEAR_UNBOUND_CHANNELS: LinearUnboundChannels = "workspace";
 
+/**
+ * Microsoft Teams has no integration settings yet, so its unbound-channel
+ * policy is fixed: a Teams channel routes sessions only once a team has bound
+ * it. There is no DM to exempt and no workspace-scoped Teams surface to fall
+ * back to, so an unbound channel is refused rather than owned by the workspace.
+ */
+export const DEFAULT_MSTEAMS_UNBOUND_CHANNELS: "workspace" | "reject" = "reject";
+
 /** Global Linear defaults include workspace-wide policy that repo overrides cannot change. */
 export const linearBotGlobalSettingsSchema = linearBotSettingsSchema.extend({
   unboundChannels: linearUnboundChannelsSchema.optional(),

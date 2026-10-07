@@ -39,11 +39,11 @@ describe("route policy table", () => {
   });
 
   it("publishes the complete canonical route catalog", () => {
-    expect(routes).toHaveLength(240);
+    expect(routes).toHaveLength(241);
 
     const paths = routes.map((route) => route.path);
-    expect(new Set(paths).size).toBe(182);
-    expect(new Set(routes.map((route) => `${route.method}:${route.path}`)).size).toBe(240);
+    expect(new Set(paths).size).toBe(183);
+    expect(new Set(routes.map((route) => `${route.method}:${route.path}`)).size).toBe(241);
     expect(routeFor("POST", "/sessions/session-1/sandbox-memory/search")).toMatchObject({
       authentication: { kind: "sandbox" },
       supportedScmProviders: "all",
@@ -344,6 +344,7 @@ describe("route policy table", () => {
   it.each([
     ["slack", "slack-bot"],
     ["linear", "linear-bot"],
+    ["msteams", "teams-bot"],
   ] as const)("admits only the %s bot to its channel-binding lookup", (provider, service) => {
     expect(routeFor("GET", `/channel-bindings/${provider}/C1`)?.authorization).toEqual({
       kind: "service",

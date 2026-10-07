@@ -43,6 +43,19 @@ const SERVICE_PERMISSION_CEILINGS: Record<ServiceName, readonly PermissionId[]> 
     "sessions.lifecycle",
     "skills.read",
   ],
+  // The Teams bot renders completions from callbacks and never reaches into a sandbox.
+  "teams-bot": [
+    "repositories.read",
+    "repositories.use",
+    "environments.read",
+    "environments.use",
+    "integrations.read",
+    "sessions.create",
+    "sessions.read",
+    "sessions.collaborate",
+    "sessions.lifecycle",
+    "skills.read",
+  ],
 };
 
 /** Checks the hard permission ceiling for a trusted service, independent of user grants. */
