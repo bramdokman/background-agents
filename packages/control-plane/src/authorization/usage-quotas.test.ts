@@ -81,11 +81,17 @@ describe("usage quotas", () => {
     }
   }
 
+  /**
+   * Audit rows for one action, ordered by fields the test controls. Rows written
+   * within the same millisecond would otherwise tie on occurred_at and fall back
+   * to the random id, which made multi-row assertions order-dependent.
+   */
   async function auditRows(action: string) {
     const rows = await db
       .prepare(
         `SELECT actor_user_id_snapshot, resource_type, resource_id, target_user_id_snapshot, team_id, metadata_json
-         FROM authorization_audit_events WHERE action = ? ORDER BY occurred_at, id`
+         FROM authorization_audit_events WHERE action = ?
+         ORDER BY resource_type, resource_id, target_user_id_snapshot, occurred_at, id`
       )
       .bind(action)
       .all();
