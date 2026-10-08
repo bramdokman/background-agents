@@ -14,7 +14,8 @@ import { createUserAuthRuntimeFromEnv, type UserAuthRuntime } from "./runtime";
  * The Microsoft sign-in as the browser drives it: initiation, the OAuth
  * callback with a tenant-issued ID token, and the session that results —
  * through the real Better Auth instance over the canonical SQLite schema,
- * with only Microsoft's two HTTP endpoints (token exchange, JWKS) mocked.
+ * with only Microsoft's three HTTP endpoints (token exchange, OpenID
+ * discovery, JWKS) mocked.
  */
 
 const PUBLIC_WEB_ORIGIN = "https://web.test.local";
@@ -145,12 +146,12 @@ describe("Microsoft Entra ID sign-in", () => {
       true,
       ["sign", "verify"]
     )) as CryptoKeyPair;
-    publicJwk = {
-      ...(await crypto.subtle.exportKey("jwk", keyPair.publicKey)),
-      alg: "RS256",
-      kid: KEY_ID,
-      use: "sig",
-    };
+    // Microsoft's shape: the tenant JWKS publishes kty, use, kid, x5t, n, e
+    // (and x5c) with NO `alg`; a verifier that reads the algorithm from the
+    // key rejects every real token. Web Crypto's export adds alg/key_ops/ext.
+    const { n, e } = (await crypto.subtle.exportKey("jwk", keyPair.publicKey)) as JsonWebKey;
+    publicJwk = { kty: "RSA", use: "sig", kid: KEY_ID, x5t: KEY_ID, n, e };
+    expect(publicJwk).not.toHaveProperty("alg");
   });
 
   beforeEach(() => {
@@ -182,6 +183,12 @@ describe("Microsoft Entra ID sign-in", () => {
             expires_in: 3600,
             access_token: "microsoft-access-token",
             id_token: nextIdToken,
+          });
+        }
+        if (url === `${AUTHORITY}/${TENANT_ID}/v2.0/.well-known/openid-configuration`) {
+          return Response.json({
+            issuer: `${AUTHORITY}/${TENANT_ID}/v2.0`,
+            jwks_uri: `${AUTHORITY}/${TENANT_ID}/discovery/v2.0/keys`,
           });
         }
         if (url === `${AUTHORITY}/${TENANT_ID}/discovery/v2.0/keys`) {
