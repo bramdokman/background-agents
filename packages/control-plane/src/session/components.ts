@@ -451,6 +451,7 @@ export function createSessionRuntime(platform: SessionPlatform, env: Env): Sessi
     slackPostScope: {
       getSession: (sessionId) => sessionIndexStore.get(sessionId),
       getChannelBinding: (channelId) => teamChannelBindingStore.get("slack", channelId),
+      getMsTeamsChannelBinding: (channelId) => teamChannelBindingStore.get("msteams", channelId),
     },
     env,
     completeAutomationRun: (completion) => scheduler.runComplete(completion),

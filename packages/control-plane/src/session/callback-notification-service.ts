@@ -1,9 +1,10 @@
 /**
- * CallbackNotificationService - Slack/Linear bot callback notifications.
+ * CallbackNotificationService - Slack/Linear/Teams bot callback notifications.
  *
  * Extracted from SessionDO to reduce its size. Handles:
- * - Notifying originating clients (Slack, Linear) on execution completion
+ * - Notifying originating clients (Slack, Linear, Teams) on execution completion
  * - Throttled tool-call progress callbacks
+ * - The Slack and Teams channel publication gates, with thread closure on denial
  * - HMAC payload signing for callback authentication
  */
 
@@ -87,6 +88,35 @@ function hasSlackThreadCoordinates(context: unknown): context is {
     !!context.threadTs
   );
 }
+
+interface TeamsThreadCoordinates {
+  conversationId: string;
+  serviceUrl: string;
+  replyToId?: string;
+}
+
+/** Where a Teams thread lives, from the bot's callback context; enough to post a closure note. */
+function teamsThreadCoordinates(context: unknown): TeamsThreadCoordinates | null {
+  if (
+    !isRecord(context) ||
+    typeof context.conversationId !== "string" ||
+    !context.conversationId ||
+    typeof context.serviceUrl !== "string" ||
+    !context.serviceUrl
+  ) {
+    return null;
+  }
+  return {
+    conversationId: context.conversationId,
+    serviceUrl: context.serviceUrl,
+    ...(typeof context.replyToId === "string" && context.replyToId
+      ? { replyToId: context.replyToId }
+      : {}),
+  };
+}
+
+/** The Teams bot's `thread_closed` kind (callbacks/schemas.ts in packages/teams-bot). */
+const MSTEAMS_THREAD_CLOSED_KIND = "msteams.thread_closed";
 
 /**
  * How stale a Slack assistant-thread activity indicator may get before the
@@ -176,28 +206,83 @@ export class CallbackNotificationService {
     return slackPostGate(session, binding);
   }
 
-  /** Closure carries coordinates only, never session content or tool arguments. */
-  private async notifySlackThreadClosed(
+  /**
+   * The Teams publication gate: the same rule as Slack's, against the
+   * `msteams` binding of the channel the thread lives in. The bot starts
+   * sessions from channel threads only, so a context without a channel is
+   * not one it sent.
+   */
+  private async teamsPostDenial(sessionId: string, context: unknown): Promise<string | null> {
+    if (!isRecord(context) || typeof context.channelId !== "string" || !context.channelId) {
+      return "invalid_callback_context";
+    }
+    const [session, binding] = await Promise.all([
+      this.slackPostScope.getSession(sessionId),
+      this.slackPostScope.getMsTeamsChannelBinding(context.channelId),
+    ]);
+    return slackPostGate(session, binding);
+  }
+
+  /** Why output may not be published to this destination right now; null when it may. */
+  private async postDenial(
+    destination: CallbackDestination,
+    sessionId: string,
+    context: unknown
+  ): Promise<string | null> {
+    switch (destination) {
+      case "slack-bot":
+        return this.slackPostDenial(sessionId, context);
+      case "teams-bot":
+        return this.teamsPostDenial(sessionId, context);
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * The closure request for a denied thread, or null when the context has no
+   * coordinates to address one with. Carries coordinates only, never session
+   * content or tool arguments.
+   */
+  private threadClosedRequest(
+    destination: CallbackDestination,
+    sessionId: string,
+    context: unknown,
+    binding: FetchClient,
+    secret: string
+  ): ((signal: AbortSignal) => Promise<Response>) | null {
+    if (destination === "slack-bot" && hasSlackThreadCoordinates(context)) {
+      return (signal) => this.sendSlackThreadClosed(sessionId, context, binding, secret, signal);
+    }
+    if (destination === "teams-bot") {
+      const coordinates = teamsThreadCoordinates(context);
+      if (coordinates) {
+        return (signal) =>
+          this.sendTeamsThreadClosed(sessionId, coordinates, binding, secret, signal);
+      }
+    }
+    return null;
+  }
+
+  private async notifyThreadClosed(
+    destination: CallbackDestination,
     sessionId: string,
     context: unknown,
     binding: FetchClient,
     secret: string
   ): Promise<CallbackDeliveryResult> {
-    if (!hasSlackThreadCoordinates(context)) {
+    const send = this.threadClosedRequest(destination, sessionId, context, binding, secret);
+    if (!send) {
       return { delivered: false, attempts: 0 };
     }
-    return deliverWithRetry(
-      (signal) => this.sendSlackThreadClosed(sessionId, context, binding, secret, signal),
-      this.sleep,
-      ({ attempt, response, error }) => {
-        this.log.warn("callback.thread_closed_delivery_attempt_failed", {
-          session_id: sessionId,
-          attempt,
-          ...(response ? { http_status: response.status } : {}),
-          ...(error !== undefined ? { error: error instanceof Error ? error : String(error) } : {}),
-        });
-      }
-    );
+    return deliverWithRetry(send, this.sleep, ({ attempt, response, error }) => {
+      this.log.warn("callback.thread_closed_delivery_attempt_failed", {
+        session_id: sessionId,
+        attempt,
+        ...(response ? { http_status: response.status } : {}),
+        ...(error !== undefined ? { error: error instanceof Error ? error : String(error) } : {}),
+      });
+    });
   }
 
   private async sendSlackThreadClosed(
@@ -223,14 +308,37 @@ export class CallbackNotificationService {
     });
   }
 
+  private async sendTeamsThreadClosed(
+    sessionId: string,
+    context: TeamsThreadCoordinates,
+    binding: FetchClient,
+    secret: string,
+    signal: AbortSignal
+  ): Promise<Response> {
+    const unsigned = {
+      kind: MSTEAMS_THREAD_CLOSED_KIND,
+      sessionId,
+      timestamp: Date.now(),
+      context,
+    };
+    const signature = await this.signPayload(unsigned, secret);
+    signal.throwIfAborted();
+    return binding.fetch("https://internal/callbacks/thread_closed", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...unsigned, signature }),
+      signal,
+    });
+  }
+
   /**
    * Where a non-automation callback goes and which key signs it — one
    * decision, so destination and signing key cannot diverge (the CP signs
    * with the DESTINATION bot's secret). Automation callbacks
    * are routed to the automation scheduler before this is consulted. Linear
    * and Teams sources go to their bots; every other source defaults to the
-   * slack bot for backward compatibility (web sources, etc.), and only that
-   * destination is subject to the Slack publication gate.
+   * slack bot for backward compatibility (web sources, etc.). The Slack and
+   * Teams destinations are subject to their channel publication gates.
    */
   private resolveCallbackRoute(source: string | null): {
     destination: CallbackDestination;
@@ -367,26 +475,24 @@ export class CallbackNotificationService {
       const delivery = await retryDelivery<Response | null, Response>(
         async (signal) => {
           const denial =
-            rejectReason ??
-            (destination === "slack-bot"
-              ? await this.slackPostDenial(callbackSessionId, rawContext)
-              : null);
+            rejectReason ?? (await this.postDenial(destination, callbackSessionId, rawContext));
           // D1 reads cannot be canceled; an expired attempt must not reach the wire.
           signal.throwIfAborted();
           // The bot can tombstone the thread even when closure delivery fails.
           rejectReason = denial ?? undefined;
           let response: Response;
           if (denial) {
-            if (!hasSlackThreadCoordinates(rawContext)) {
-              return { outcome: "delivered", value: null };
-            }
-            response = await this.sendSlackThreadClosed(
+            const closure = this.threadClosedRequest(
+              destination,
               callbackSessionId,
               rawContext,
               binding,
-              secret,
-              signal
+              secret
             );
+            if (!closure) {
+              return { outcome: "delivered", value: null };
+            }
+            response = await closure(signal);
           } else {
             const signature = await this.signPayload(payloadData, secret);
             signal.throwIfAborted();
@@ -568,7 +674,7 @@ export class CallbackNotificationService {
     try {
       const denial = await this.slackPostDenial(sessionId, context);
       if (denial) {
-        await this.notifySlackThreadClosed(sessionId, context, binding, secret);
+        await this.notifyThreadClosed("slack-bot", sessionId, context, binding, secret);
         this.log.info("callback.activity_refresh", {
           message_id: messageId,
           session_id: sessionId,
@@ -760,11 +866,11 @@ export class CallbackNotificationService {
     if (now - this._lastToolCallCallbackTs < 3000) return;
     this._lastToolCallCallbackTs = now;
 
-    if (destination === "slack-bot") {
+    if (destination === "slack-bot" || destination === "teams-bot") {
       try {
-        const denial = await this.slackPostDenial(sessionId, rawContext);
+        const denial = await this.postDenial(destination, sessionId, rawContext);
         if (denial) {
-          await this.notifySlackThreadClosed(sessionId, rawContext, binding, secret);
+          await this.notifyThreadClosed(destination, sessionId, rawContext, binding, secret);
           this.log.info("callback.tool_call", {
             message_id: messageId,
             session_id: sessionId,

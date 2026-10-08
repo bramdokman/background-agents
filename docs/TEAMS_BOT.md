@@ -24,7 +24,7 @@ actor namespace and the `teams-bot` service principal) is described in
 | Model and reasoning flags (`!model ...`, `!reasoning ...`) at the start of a request         | Same semantics as in Slack: on a request that starts a session they become the session's defaults, on a follow-up they apply to that request.                                                           |
 | The agent works                                                                              | The "Working..." reply is edited in place with throttled progress and tool-call summaries.                                                                                                              |
 | The turn completes                                                                           | The final assistant text, the pull request link when there is one, and a link to the web session are posted in the thread. Exactly one final message, even when the control plane retries the callback. |
-| The session's thread is closed                                                               | A short note in the thread.                                                                                                                                                                             |
+| The session's thread is closed                                                               | A short note in the thread, and no further output. The control plane closes a thread when the session becomes private or the channel is no longer bound to the session's team.                          |
 
 Teams has no server-side slash commands, so the `commandLists` in the app manifest are display hints
 only; the bot parses the text after the @mention. Repository resolution is deterministic (the Slack

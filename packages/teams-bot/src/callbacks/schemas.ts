@@ -16,9 +16,9 @@ import { z } from "zod";
 
 /**
  * `kind` values for the two callbacks that carry one. The control plane
- * emits the `slack.*` kinds today and only on Slack paths; the `msteams.*`
- * kinds are what a Teams-aware emitter would send. Both are accepted so the
- * routes work the day the control plane routes them here.
+ * sends `msteams.thread_closed` when its Teams publication gate withdraws a
+ * thread; activity refreshes exist for Slack only. The `slack.*` kinds are
+ * accepted as well so a shared emitter cannot be refused on the name alone.
  */
 const MSTEAMS_ACTIVITY_REFRESH_KIND = "msteams.activity_refresh";
 export const MSTEAMS_THREAD_CLOSED_KIND = "msteams.thread_closed";

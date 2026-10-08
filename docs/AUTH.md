@@ -491,9 +491,12 @@ The control plane carries what a Microsoft Teams bot needs; the bot itself is a 
   not available to it.
 - **Callbacks.** Prompts from the bot carry `source: "msteams"` and an `msteams` callback context
   (conversation, service URL, reply activity, channel). Completion and tool-call callbacks go to the
-  Teams bot, signed with its key, and bypass the Slack publication gate. On the Node host the bot is
-  reached by `TEAMS_BOT_URL` (`SLACK_BOT_URL` and `LINEAR_BOT_URL` serve the other bots the same
-  way); on Cloudflare the bots are service bindings.
+  Teams bot, signed with its key, under the same publication gate Slack has, read against the
+  `msteams` binding of the context's channel: a private session, a session whose owning team no
+  longer holds the channel's binding, or a context without a channel gets no output; the bot
+  receives `msteams.thread_closed` (`POST /callbacks/thread_closed`, coordinates only) instead and
+  tombstones the thread. On the Node host the bot is reached by `TEAMS_BOT_URL` (`SLACK_BOT_URL` and
+  `LINEAR_BOT_URL` serve the other bots the same way); on Cloudflare the bots are service bindings.
 
 ### GitHub Routing
 

@@ -89,6 +89,9 @@ function createTestHarness(overrides?: {
     getChannelBinding: vi.fn<SlackPostScope["getChannelBinding"]>().mockResolvedValue({
       teamId: "team-a",
     }),
+    getMsTeamsChannelBinding: vi
+      .fn<SlackPostScope["getMsTeamsChannelBinding"]>()
+      .mockResolvedValue({ teamId: "team-a" }),
   };
 
   const env: CallbackServiceEnv = {
@@ -696,7 +699,7 @@ describe("CallbackNotificationService", () => {
       expect(await verifyCallbackSignature(body, "test-secret")).toBe(true);
     });
 
-    it("routes to TEAMS_BOT for the msteams source, signed with the Teams key and ungated by Slack", async () => {
+    it("routes to TEAMS_BOT for the msteams source, signed with the Teams key and gated by the Teams binding", async () => {
       vi.mocked(harness.repository.getMessageCallbackContext).mockReturnValue({
         callback_context: JSON.stringify(MSTEAMS_CALLBACK_CONTEXT),
         source: "msteams",
@@ -708,7 +711,10 @@ describe("CallbackNotificationService", () => {
       expect(harness.teamsBot.fetch).toHaveBeenCalledTimes(1);
       expect(harness.slackBot.fetch).not.toHaveBeenCalled();
       expect(harness.linearBot.fetch).not.toHaveBeenCalled();
-      expect(harness.slackPostScope.getSession).not.toHaveBeenCalled();
+      expect(harness.slackPostScope.getSession).toHaveBeenCalledExactlyOnceWith("session-123");
+      expect(harness.slackPostScope.getMsTeamsChannelBinding).toHaveBeenCalledExactlyOnceWith(
+        MSTEAMS_CALLBACK_CONTEXT.channelId
+      );
       expect(harness.slackPostScope.getChannelBinding).not.toHaveBeenCalled();
       const [url, init] = harness.teamsBot.fetch.mock.calls[0]!;
       expect(url).toBe("https://internal/callbacks/complete");
@@ -723,6 +729,69 @@ describe("CallbackNotificationService", () => {
       });
       expect(await verifyCallbackSignature({ ...payload, signature }, "teams-secret")).toBe(true);
       expect(await verifyCallbackSignature({ ...payload, signature }, "test-secret")).toBe(false);
+    });
+
+    it.each([
+      { visibility: "private", binding: { teamId: "team-a" }, reason: "private_session" },
+      { visibility: "workspace", binding: null, reason: "channel_team_mismatch" },
+      { visibility: "workspace", binding: { teamId: "team-b" }, reason: "channel_team_mismatch" },
+    ] as const)(
+      "closes a Teams thread instead of posting when the gate denies ($reason)",
+      async ({ visibility, binding, reason }) => {
+        vi.mocked(harness.repository.getMessageCallbackContext).mockReturnValue({
+          callback_context: JSON.stringify(MSTEAMS_CALLBACK_CONTEXT),
+          source: "msteams",
+        });
+        harness.slackPostScope.getSession.mockResolvedValue({ ownerTeamId: "team-a", visibility });
+        harness.slackPostScope.getMsTeamsChannelBinding.mockResolvedValue(binding);
+        vi.mocked(harness.teamsBot.fetch).mockResolvedValue(new Response("ok", { status: 200 }));
+
+        await harness.service.notifyComplete("msg-1", true);
+
+        expect(harness.teamsBot.fetch).toHaveBeenCalledTimes(1);
+        const [url, init] = harness.teamsBot.fetch.mock.calls[0]!;
+        expect(url).toBe("https://internal/callbacks/thread_closed");
+        const { signature, ...payload } = JSON.parse(String(init?.body));
+        expect(payload).toEqual({
+          kind: "msteams.thread_closed",
+          sessionId: "session-123",
+          timestamp: expect.any(Number),
+          context: {
+            conversationId: MSTEAMS_CALLBACK_CONTEXT.conversationId,
+            serviceUrl: MSTEAMS_CALLBACK_CONTEXT.serviceUrl,
+            replyToId: MSTEAMS_CALLBACK_CONTEXT.replyToId,
+          },
+        });
+        expect(payload.context).not.toHaveProperty("repoFullName");
+        expect(payload).not.toHaveProperty("messageId");
+        expect(await verifyCallbackSignature({ ...payload, signature }, "teams-secret")).toBe(true);
+        expect(harness.log.info).toHaveBeenCalledWith(
+          "callback.complete_delivery",
+          expect.objectContaining({ outcome: "rejected", reject_reason: reason })
+        );
+      }
+    );
+
+    it("rejects an msteams completion whose context names no channel, without any delivery", async () => {
+      const { channelId: _channelId, ...withoutChannel } = MSTEAMS_CALLBACK_CONTEXT;
+      vi.mocked(harness.repository.getMessageCallbackContext).mockReturnValue({
+        callback_context: JSON.stringify(withoutChannel),
+        source: "msteams",
+      });
+      vi.mocked(harness.teamsBot.fetch).mockResolvedValue(new Response("ok", { status: 200 }));
+
+      await harness.service.notifyComplete("msg-1", true);
+
+      // No channel: nothing to gate against, and the closure note still has coordinates.
+      expect(harness.teamsBot.fetch).toHaveBeenCalledTimes(1);
+      expect(harness.teamsBot.fetch.mock.calls[0]![0]).toBe(
+        "https://internal/callbacks/thread_closed"
+      );
+      expect(harness.slackPostScope.getSession).not.toHaveBeenCalled();
+      expect(harness.log.info).toHaveBeenCalledWith(
+        "callback.complete_delivery",
+        expect.objectContaining({ outcome: "rejected", reject_reason: "invalid_callback_context" })
+      );
     });
 
     it("skips an msteams completion without a Teams port rather than falling back to Slack", async () => {
@@ -1222,6 +1291,30 @@ describe("CallbackNotificationService", () => {
       expect(harness.slackPostScope.getChannelBinding).toHaveBeenCalledOnce();
     });
 
+    it("closes a Teams thread instead of sending tool-call progress when the binding moved", async () => {
+      vi.mocked(harness.repository.getMessageCallbackContext).mockReturnValue({
+        callback_context: JSON.stringify(MSTEAMS_CALLBACK_CONTEXT),
+        source: "msteams",
+      });
+      harness.slackPostScope.getMsTeamsChannelBinding.mockResolvedValue({ teamId: "team-b" });
+      vi.mocked(harness.teamsBot.fetch).mockResolvedValue(new Response("ok", { status: 200 }));
+
+      await harness.service.notifyToolCall("msg-1", { type: "tool_call", tool: "bash" });
+
+      expect(harness.teamsBot.fetch).toHaveBeenCalledTimes(1);
+      const [url, init] = harness.teamsBot.fetch.mock.calls[0]!;
+      expect(url).toBe("https://internal/callbacks/thread_closed");
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        kind: "msteams.thread_closed",
+        sessionId: "session-123",
+        context: { conversationId: MSTEAMS_CALLBACK_CONTEXT.conversationId },
+      });
+      expect(harness.log.info).toHaveBeenCalledWith(
+        "callback.tool_call",
+        expect.objectContaining({ outcome: "rejected", reject_reason: "channel_team_mismatch" })
+      );
+    });
+
     it("names the turn in a Teams tool-call callback and leaves Slack and Linear payloads as they were", async () => {
       vi.mocked(harness.repository.getMessageCallbackContext).mockReturnValue({
         callback_context: JSON.stringify(MSTEAMS_CALLBACK_CONTEXT),
@@ -1252,7 +1345,10 @@ describe("CallbackNotificationService", () => {
         context: MSTEAMS_CALLBACK_CONTEXT,
       });
       expect(await verifyCallbackSignature({ ...payload, signature }, "teams-secret")).toBe(true);
-      expect(harness.slackPostScope.getSession).not.toHaveBeenCalled();
+      expect(harness.slackPostScope.getMsTeamsChannelBinding).toHaveBeenCalledExactlyOnceWith(
+        MSTEAMS_CALLBACK_CONTEXT.channelId
+      );
+      expect(harness.slackPostScope.getChannelBinding).not.toHaveBeenCalled();
 
       harness = createTestHarness();
       vi.mocked(harness.repository.getMessageCallbackContext).mockReturnValue({

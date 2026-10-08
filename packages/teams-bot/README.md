@@ -33,9 +33,12 @@ service principal, and renders progress back into the Teams thread.
     and a bot restart in between still yields exactly one final message (the stored conversation
     reference addresses the thread). The reads need the actor the bot stored with the thread:
     without it (an unknown thread) the final message carries the link only.
-  - `thread_closed` marks the thread closed and posts a short note once.
-  - `activity` is acknowledged; Teams has no indicator to refresh. The control plane currently emits
-    `activity` and `thread_closed` only on Slack paths.
+  - `thread_closed` marks the thread closed and posts a short note once. The control plane sends it
+    (`kind: "msteams.thread_closed"`) instead of a completion or tool call when its publication gate
+    denies the thread: the session became private, or the channel is no longer bound to the
+    session's team.
+  - `activity` is acknowledged; Teams has no indicator to refresh, and the control plane emits
+    activity refreshes only for Slack.
 - `GET /healthz` for probes.
 
 ## Configuration
