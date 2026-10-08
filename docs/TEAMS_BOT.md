@@ -227,8 +227,12 @@ sign-in links to the existing user when the verified email matches, see
   the signature against the JWKS from the Bot Framework OpenID metadata, the issuer
   (`https://api.botframework.com`, or the tenant's `https://login.microsoftonline.com/<tenant>/v2.0`
   for emulator-style tokens), the audience (`TEAMS_BOT_APP_ID`) and the lifetime, and answers 401
-  otherwise, without calling the control plane. The activity's `serviceUrl` must also match
-  `TEAMS_BOT_ALLOWED_SERVICE_URL_HOSTS` before the bot posts anything to it.
+  otherwise, without calling the control plane. A tenant-issued token is accepted only when its
+  authorized party (`azp`, or `appid` on v1 tokens) is the bot's own app id and its `tid` is the
+  bot's tenant: Entra issues tokens for the bot's audience to any client in the tenant, and the
+  sender's identity is read from the activity on the token's word alone. Connector tokens are bound
+  to the activity through their `serviceurl` claim instead. The activity's `serviceUrl` must also
+  match `TEAMS_BOT_ALLOWED_SERVICE_URL_HOSTS` before the bot posts anything to it.
 - **Bot to control plane.** `sig1` request signatures with `SERVICE_AUTH_SECRET_TEAMS_BOT` as
   service `teams-bot`, plus `X-OpenInspect-Actor: microsoft:<aadObjectId>` naming the sender.
   Prompts carry `source: "msteams"` and an `msteams` callback context (conversation id, service URL,

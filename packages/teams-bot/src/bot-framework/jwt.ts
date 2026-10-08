@@ -3,8 +3,9 @@
  *
  * Deliberately narrow: one algorithm, keys from a {@link KeyResolver}, and
  * the claim checks the Bot Framework scheme requires (issuer, audience,
- * lifetime, and the `serviceurl` claim against the activity). Every failure
- * is a rejection with a reason for the log; nothing here throws on input.
+ * lifetime, the authorized party for tenant-issued tokens, and the
+ * `serviceurl` claim against the activity). Every failure is a rejection with
+ * a reason for the log; nothing here throws on input.
  */
 
 import { createPublicKey, verify as verifySignature } from "node:crypto";
@@ -19,6 +20,8 @@ export type JwtRejectReason =
   | "expired"
   | "not_yet_valid"
   | "audience"
+  | "app_id"
+  | "tenant"
   | "service_url";
 
 export type JwtClaims = Record<string, unknown>;
@@ -32,7 +35,21 @@ export interface VerifyBotFrameworkTokenOptions {
   /** Issuers whose tokens are accepted; each must be known to `keys`. */
   issuers: readonly string[];
   keys: KeyResolver;
-  /** The activity's serviceUrl; a token carrying a `serviceurl` claim must match it. */
+  /**
+   * The tenant's own issuer, when it is among `issuers`. Entra mints a token
+   * for the bot's audience to any client in the tenant that asks, so a token
+   * from this issuer is the bot's only when its `azp` (v2) or `appid` (v1)
+   * names the bot's own app id; `tenantId` must match its `tid` when present.
+   * Connector tokens (`https://api.botframework.com`) carry neither claim and
+   * are bound to the activity by `serviceurl` instead.
+   */
+  tenantIssuer?: string;
+  tenantId?: string;
+  /**
+   * The activity's serviceUrl; a token carrying a `serviceurl` claim must
+   * match it. Omit to defer that check to {@link verifyServiceUrlClaim}, for
+   * callers that verify the token before they read the activity.
+   */
   expectedServiceUrl?: string;
   now?: () => number;
   clockSkewMs?: number;
@@ -89,6 +106,29 @@ function numericClaim(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+/** The client the token was issued to: `azp` in v2 tokens, `appid` in v1 tokens. */
+function authorizedParty(payload: JwtClaims): string | undefined {
+  const azp = payload.azp ?? payload.appid;
+  return typeof azp === "string" && azp !== "" ? azp : undefined;
+}
+
+/**
+ * Whether a token's `serviceurl` claim allows the activity's serviceUrl. A
+ * token without the claim binds to nothing and passes; a token with it must
+ * name the activity's host, so a connector token captured from one
+ * conversation cannot authenticate activities for another.
+ */
+export function verifyServiceUrlClaim(claims: JwtClaims, expectedServiceUrl: unknown): boolean {
+  const serviceUrlClaim = claims.serviceurl;
+  if (serviceUrlClaim === undefined) return true;
+  return (
+    typeof serviceUrlClaim === "string" &&
+    typeof expectedServiceUrl === "string" &&
+    normalizeServiceUrlForComparison(serviceUrlClaim) ===
+      normalizeServiceUrlForComparison(expectedServiceUrl)
+  );
+}
+
 export async function verifyBotFrameworkToken(
   token: string,
   options: VerifyBotFrameworkTokenOptions
@@ -130,16 +170,22 @@ export async function verifyBotFrameworkToken(
   }
   if (!audienceMatches(payload.aud, options.appId)) return { ok: false, reason: "audience" };
 
-  const serviceUrlClaim = payload.serviceurl;
-  if (serviceUrlClaim !== undefined) {
+  if (options.tenantIssuer !== undefined && payload.iss === options.tenantIssuer) {
+    if (authorizedParty(payload) !== options.appId) return { ok: false, reason: "app_id" };
     if (
-      typeof serviceUrlClaim !== "string" ||
-      options.expectedServiceUrl === undefined ||
-      normalizeServiceUrlForComparison(serviceUrlClaim) !==
-        normalizeServiceUrlForComparison(options.expectedServiceUrl)
+      options.tenantId !== undefined &&
+      payload.tid !== undefined &&
+      payload.tid !== options.tenantId
     ) {
-      return { ok: false, reason: "service_url" };
+      return { ok: false, reason: "tenant" };
     }
+  }
+
+  if (
+    options.expectedServiceUrl !== undefined &&
+    !verifyServiceUrlClaim(payload, options.expectedServiceUrl)
+  ) {
+    return { ok: false, reason: "service_url" };
   }
   return { ok: true, claims: payload };
 }

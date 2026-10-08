@@ -8,9 +8,9 @@ service principal, and renders progress back into the Teams thread.
 
 - `POST /api/messages`: Bot Framework inbound. The bearer JWT is verified (issuer
   `https://api.botframework.com` or the bot's tenant, audience `TEAMS_BOT_APP_ID`, RS256 keys from
-  OpenID discovery, `serviceurl` claim against the activity); activities from other tenants are
-  dropped, and a `serviceUrl` outside `TEAMS_BOT_ALLOWED_SERVICE_URL_HOSTS` is rejected before any
-  outbound call.
+  OpenID discovery, `azp`/`appid` = the bot's app id for tenant-issued tokens, `serviceurl` claim
+  against the activity); activities from other tenants are dropped, and a `serviceUrl` outside
+  `TEAMS_BOT_ALLOWED_SERVICE_URL_HOSTS` is rejected before any outbound call.
 - Commands after the mention: `owner/repo <prompt>` or `repo:owner/repo <prompt>` starts a session
   in a new thread (a bare prompt works when the bound team has exactly one repository); a reply in a
   session's thread is a follow-up prompt; `status`, `stop` and `help`.

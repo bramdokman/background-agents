@@ -64,8 +64,46 @@ describe("inbound Bot Framework authentication", () => {
     }
   });
 
-  it("accepts a token from the bot's own tenant issuer", async () => {
-    const token = mintToken(key, { iss: tenantIssuer(TENANT_ID) });
+  it("accepts a token from the bot's own tenant issuer only when the bot is its authorized party", async () => {
+    const v2 = mintToken(key, { iss: tenantIssuer(TENANT_ID), azp: APP_ID, tid: TENANT_ID });
+    await expect(authenticator().authenticate(`Bearer ${v2}`, activity)).resolves.toMatchObject({
+      ok: true,
+    });
+    const v1 = mintToken(key, { iss: tenantIssuer(TENANT_ID), appid: APP_ID });
+    await expect(authenticator().authenticate(`Bearer ${v1}`, activity)).resolves.toMatchObject({
+      ok: true,
+    });
+  });
+
+  it("rejects a tenant-issuer token another client in the tenant obtained for the bot's audience", async () => {
+    const otherClient = "22222222-3333-4444-5555-666666666666";
+    const forAnotherClient = mintToken(key, { iss: tenantIssuer(TENANT_ID), azp: otherClient });
+    await expect(
+      authenticator().authenticate(`Bearer ${forAnotherClient}`, activity)
+    ).resolves.toEqual({ ok: false, reason: "app_id" });
+    const withoutParty = mintToken(key, { iss: tenantIssuer(TENANT_ID) });
+    await expect(authenticator().authenticate(`Bearer ${withoutParty}`, activity)).resolves.toEqual(
+      { ok: false, reason: "app_id" }
+    );
+    const v1ForAnotherClient = mintToken(key, {
+      iss: tenantIssuer(TENANT_ID),
+      appid: otherClient,
+    });
+    await expect(
+      authenticator().authenticate(`Bearer ${v1ForAnotherClient}`, activity)
+    ).resolves.toEqual({ ok: false, reason: "app_id" });
+  });
+
+  it("rejects a tenant-issuer token whose tid names another tenant", async () => {
+    const token = mintToken(key, { iss: tenantIssuer(TENANT_ID), azp: APP_ID, tid: "other" });
+    await expect(authenticator().authenticate(`Bearer ${token}`, activity)).resolves.toEqual({
+      ok: false,
+      reason: "tenant",
+    });
+  });
+
+  it("does not require an authorized party on connector tokens", async () => {
+    const token = mintToken(key, { azp: "22222222-3333-4444-5555-666666666666" });
     await expect(authenticator().authenticate(`Bearer ${token}`, activity)).resolves.toMatchObject({
       ok: true,
     });
@@ -150,6 +188,10 @@ describe("inbound Bot Framework authentication", () => {
       authenticator().authenticate(`Bearer ${trailing}`, activity)
     ).resolves.toMatchObject({
       ok: true,
+    });
+    await expect(authenticator().authenticate(`Bearer ${trailing}`, {})).resolves.toEqual({
+      ok: false,
+      reason: "service_url",
     });
   });
 

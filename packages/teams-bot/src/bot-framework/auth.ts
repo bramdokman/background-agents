@@ -5,12 +5,20 @@
  * Accepted issuers are the connector (`https://api.botframework.com`) and the
  * bot's own tenant (`https://login.microsoftonline.com/<tenant>/v2.0`, which
  * the Emulator and the Entra token service use); the audience is the bot's
- * app id. Keys come from each issuer's OpenID metadata. Anything that does
- * not verify is a 401 and never reaches the control plane.
+ * app id. A tenant-issued token is accepted only when the bot itself is its
+ * authorized party (`azp`/`appid`): Entra issues tokens for the bot's audience
+ * to any client in the tenant, and the activity's `from.aadObjectId` is taken
+ * on the token's word alone. Keys come from each issuer's OpenID metadata.
+ * Anything that does not verify is a 401 and never reaches the control plane.
  */
 
 import { createOpenIdKeyResolver, type KeyResolver } from "./jwks";
-import { verifyBotFrameworkToken, type JwtClaims, type JwtRejectReason } from "./jwt";
+import {
+  verifyBotFrameworkToken,
+  verifyServiceUrlClaim,
+  type JwtClaims,
+  type JwtRejectReason,
+} from "./jwt";
 import type { FetchFn } from "../types";
 
 const BOT_FRAMEWORK_ISSUER = "https://api.botframework.com";
@@ -71,14 +79,19 @@ export function createInboundAuthenticator(
     async authenticate(authorizationHeader, activity) {
       const token = bearerToken(authorizationHeader);
       if (!token) return { ok: false, reason: "missing_token" };
-      return verifyBotFrameworkToken(token, {
+      const verified = await verifyBotFrameworkToken(token, {
         appId: options.appId,
         issuers: issuerList,
         keys,
-        expectedServiceUrl:
-          typeof activity.serviceUrl === "string" ? activity.serviceUrl : undefined,
+        tenantIssuer: tenantIssuer(options.tenantId),
+        tenantId: options.tenantId,
         now: options.now,
       });
+      if (!verified.ok) return verified;
+      if (!verifyServiceUrlClaim(verified.claims, activity.serviceUrl)) {
+        return { ok: false, reason: "service_url" };
+      }
+      return verified;
     },
   };
 }
