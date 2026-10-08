@@ -1,0 +1,192 @@
+# The Microsoft Teams bot (packages/teams-bot) as its own Deployment next to
+# the control plane: one replica (its SQLite state is single-writer),
+# Recreate, the state on a small ReadWriteOnce volume mounted at /state.
+#
+# It is the one workload in this namespace with a public path (Bot Framework
+# posts activities to POST /api/messages) and with outbound internet (the Bot
+# Framework connector and the tenant's token endpoint), which is why it is not
+# a sidecar of the control plane. How the public path reaches the Service is
+# the deployment's choice (an ingress controller, Tailscale Funnel, ...); only
+# /api/messages may be exposed, the callback routes and /healthz stay
+# cluster-internal.
+#
+# Configuration comes from the Secret `open-inspect-teams-bot-env`, created
+# out of band with the keys docs/TEAMS_BOT.md lists (TEAMS_BOT_APP_ID,
+# TEAMS_BOT_APP_SECRET, TEAMS_BOT_TENANT_ID, SERVICE_AUTH_SECRET_TEAMS_BOT,
+# CONTROL_PLANE_URL, WEB_APP_URL). The control plane needs the same
+# SERVICE_AUTH_SECRET_TEAMS_BOT in `open-inspect-control-plane-env` (it signs
+# callbacks with it and verifies the bot's requests against it) and
+# TEAMS_BOT_URL=http://open-inspect-teams-bot:3100 to deliver callbacks.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: open-inspect-teams-bot-state
+  namespace: open-inspect
+  labels:
+    app.kubernetes.io/name: open-inspect-teams-bot
+    app.kubernetes.io/part-of: open-inspect
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: open-inspect-teams-bot
+  namespace: open-inspect
+  labels:
+    app.kubernetes.io/name: open-inspect-teams-bot
+    app.kubernetes.io/part-of: open-inspect
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: open-inspect-teams-bot
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: open-inspect-teams-bot
+        app.kubernetes.io/part-of: open-inspect
+    spec:
+      # The bot talks to the control plane over HTTP, never to the API server.
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000 # node, in node:24-slim
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: teams-bot
+          image: open-inspect-teams-bot:local
+          envFrom:
+            - secretRef:
+                name: open-inspect-teams-bot-env
+          env:
+            # Tied to the containerPort and the volume mount below, so set
+            # here; a value of the same name in the Secret is overridden.
+            - name: TEAMS_BOT_PORT
+              value: "3100"
+            - name: TEAMS_BOT_STATE_DIR
+              value: /state
+          ports:
+            - name: http
+              containerPort: 3100
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 30
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: state
+              mountPath: /state
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: state
+          persistentVolumeClaim:
+            claimName: open-inspect-teams-bot-state
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: open-inspect-teams-bot
+  namespace: open-inspect
+  labels:
+    app.kubernetes.io/name: open-inspect-teams-bot
+    app.kubernetes.io/part-of: open-inspect
+spec:
+  selector:
+    app.kubernetes.io/name: open-inspect-teams-bot
+  ports:
+    - name: http
+      port: 3100
+      targetPort: http
+---
+# Ingress: the control plane (callbacks), on the bot's port only. Traffic
+# from the node itself (an ingress controller or a Funnel proxy in host
+# networking) is not subject to policy on most CNIs; where it is, add an
+# ipBlock for the node's addresses in your overlay.
+# Egress: DNS, the control plane (session API), and TCP 443 to the internet
+# for login.microsoftonline.com, *.botframework.com and the Teams service URL
+# (smba.trafficmanager.net), which resolve to changing public addresses.
+# Private ranges are excluded so the bot cannot reach other cluster or
+# tailnet services on 443; the control plane is named by its pod labels.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: teams-bot
+  namespace: open-inspect
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: open-inspect-teams-bot
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: open-inspect-control-plane
+      ports:
+        - protocol: TCP
+          port: 3100
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: open-inspect-control-plane
+      ports:
+        - protocol: TCP
+          port: 8787
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
