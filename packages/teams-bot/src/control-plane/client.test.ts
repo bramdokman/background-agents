@@ -243,7 +243,7 @@ describe("ControlPlaneClient", () => {
     ).resolves.toEqual({ ok: false, reason: "transient", status: 200 });
   });
 
-  it("lists a team's repositories and a session's messages with signed query strings", async () => {
+  it("lists a channel's repositories and a session's messages with signed query strings", async () => {
     const remote = scriptedFetch({
       "GET /repos": () =>
         json({
@@ -286,9 +286,16 @@ describe("ControlPlaneClient", () => {
       secret: SECRET,
       fetch: remote.fetch,
     });
-    const repos = await client.listRepositories(actor, "team-platform");
+    const repos = await client.listRepositories(actor, "19:chan@thread.tacv2");
     expect(repos).toMatchObject({ ok: true, data: [{ fullName: "ProvidenceIT/playground" }] });
-    expect(remote.requests[0].url).toBe(`${BASE_URL}/repos?teamId=team-platform`);
+    // Channel-scoped, never teamId: the control plane refuses a teamId from this bot.
+    expect(remote.requests[0].url).toBe(
+      `${BASE_URL}/repos?channel=msteams%3A19%3Achan%40thread.tacv2`
+    );
+    expect(new URL(remote.requests[0].url).searchParams.get("channel")).toBe(
+      "msteams:19:chan@thread.tacv2"
+    );
+    expect(new URL(remote.requests[0].url).searchParams.has("teamId")).toBe(false);
     const messages = await client.listMessages(actor, "session-1", {
       status: "processing",
       limit: 1,

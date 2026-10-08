@@ -48,6 +48,11 @@ export function microsoftActor(aadObjectId: string): string {
   return `microsoft:${aadObjectId}`;
 }
 
+/** The `channel` query coordinate for a Teams channel; the id keeps its own `:` and `@`. */
+export function msteamsChannelScope(channelId: string): string {
+  return `msteams:${channelId}`;
+}
+
 /** Why a control-plane call did not succeed, from the response the bot renders. */
 type ControlPlaneFailureReason =
   "not_enrolled" | "quota" | "forbidden" | "not_found" | "invalid" | "transient";
@@ -222,15 +227,25 @@ export class ControlPlaneClient {
     return { kind: "unavailable", status: result.status };
   }
 
-  /** The repositories the bound team may use, as the actor sees them. */
+  /**
+   * The repositories the channel's team may use, as the actor sees them. The
+   * scope is the channel (`channel=msteams:<channelId>`): the control plane
+   * derives the team from the live binding and refuses a `teamId` from a
+   * channel-scoped bot, so the bot never names the team itself.
+   */
   listRepositories(
     actor: string,
-    teamId: string,
+    channelId: string,
     traceId?: string
   ): Promise<ControlPlaneResult<InstallationRepository[]>> {
     return this.request(
       "control_plane.list_repositories",
-      { method: "GET", url: this.url("/repos", { teamId }), actor, traceId },
+      {
+        method: "GET",
+        url: this.url("/repos", { channel: msteamsChannelScope(channelId) }),
+        actor,
+        traceId,
+      },
       (payload) => controlPlaneReposResponseSchema.parse(payload).repos
     );
   }

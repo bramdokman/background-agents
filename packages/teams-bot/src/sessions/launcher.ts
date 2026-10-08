@@ -113,10 +113,10 @@ export interface LaunchInput {
 async function resolveRepository(
   deps: LaunchDeps,
   input: LaunchInput,
-  teamId: string
+  channelId: string
 ): Promise<ControlPlaneResult<RepositoryRef | null>> {
   if (input.repo) return { ok: true, data: input.repo };
-  const repos = await deps.controlPlane.listRepositories(input.actor, teamId, input.traceId);
+  const repos = await deps.controlPlane.listRepositories(input.actor, channelId, input.traceId);
   if (!repos.ok) return repos;
   if (repos.data.length === 1) {
     const [only] = repos.data;
@@ -162,7 +162,7 @@ export async function launchSession(deps: LaunchDeps, input: LaunchInput): Promi
     return;
   }
 
-  const repo = await resolveRepository(deps, input, teamId);
+  const repo = await resolveRepository(deps, input, channelId);
   if (!repo.ok) {
     await reply(renderFailure(repo, deps.webAppUrl, SESSION_CREATE_FAILED_MESSAGE));
     return;

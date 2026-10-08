@@ -340,7 +340,7 @@ describe("POST /api/messages", () => {
     await one.post(activityFixture({ text: "<at>Open-Inspect</at> add a README badge" }));
     expect(one.controlPlaneCalls()).toEqual([
       `GET /channel-bindings/msteams/${encodeURIComponent(CHANNEL_ID)}`,
-      "GET /repos?teamId=team-platform",
+      `GET /repos?channel=${encodeURIComponent(`msteams:${CHANNEL_ID}`)}`,
       "POST /sessions",
       "POST /sessions/session-1/prompt",
     ]);
@@ -385,7 +385,7 @@ describe("POST /api/messages", () => {
     await many.post(activityFixture({ text: "<at>Open-Inspect</at> add a README badge" }));
     expect(many.controlPlaneCalls()).toEqual([
       `GET /channel-bindings/msteams/${encodeURIComponent(CHANNEL_ID)}`,
-      "GET /repos?teamId=team-platform",
+      `GET /repos?channel=${encodeURIComponent(`msteams:${CHANNEL_ID}`)}`,
     ]);
     expect(many.replies()[0].text).toBe(
       "Name a repository: `@bot owner/repo <prompt>`. This team can use:\n- `ProvidenceIT/a`\n- `ProvidenceIT/b`"
