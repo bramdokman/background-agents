@@ -6,7 +6,15 @@ import {
   WORKING_TEXT,
 } from "./reply-sink";
 
-function recordingPort(options: { failUpdate?: boolean } = {}) {
+/** What the Bot Framework client throws for a 4xx: the connector refused this edit for good. */
+function refusal(status = 404) {
+  return Object.assign(new Error(`Bot Framework updateActivity failed with ${status}`), {
+    status,
+    refused: true,
+  });
+}
+
+function recordingPort(options: { failUpdate?: () => unknown } = {}) {
   const posts: string[] = [];
   const edits: Array<{ id: string; text: string }> = [];
   return {
@@ -18,7 +26,7 @@ function recordingPort(options: { failUpdate?: boolean } = {}) {
         return { id: `activity-${posts.length}` };
       },
       async update(id: string, text: string) {
-        if (options.failUpdate) throw new Error("update failed");
+        if (options.failUpdate) throw options.failUpdate();
         edits.push({ id, text });
       },
     },
@@ -63,8 +71,8 @@ describe("reply sink (ported from Centaur)", () => {
     ]);
   });
 
-  it("posts a fresh message when the edit fails, and reports failures the same way", async () => {
-    const { port, posts, edits } = recordingPort({ failUpdate: true });
+  it("posts a fresh message when the channel refuses the edit, and reports failures the same way", async () => {
+    const { port, posts, edits } = recordingPort({ failUpdate: () => refusal(404) });
     const sink = createBlockReplySink(port);
     await sink.begin();
     await expect(sink.fail("Something went wrong", "")).resolves.toEqual({
@@ -73,5 +81,30 @@ describe("reply sink (ported from Centaur)", () => {
     expect(posts).toEqual([WORKING_TEXT, "Something went wrong"]);
     expect(edits).toEqual([]);
     await expect(updateOrPost(port, undefined, "no id yet")).resolves.toBe("activity-3");
+  });
+
+  it("does not post a second copy when the edit merely failed (timeout, 5xx)", async () => {
+    const timedOut = recordingPort({
+      failUpdate: () =>
+        Object.assign(new Error("The operation was aborted"), { name: "TimeoutError" }),
+    });
+    await expect(updateOrPost(timedOut.port, "activity-1", "final")).rejects.toThrow(
+      "The operation was aborted"
+    );
+    expect(timedOut.posts).toEqual([]);
+    const serverError = recordingPort({
+      failUpdate: () =>
+        Object.assign(new Error("Bot Framework updateActivity failed with 502"), {
+          status: 502,
+          refused: false,
+        }),
+    });
+    await expect(updateOrPost(serverError.port, "activity-1", "final")).rejects.toThrow(
+      "failed with 502"
+    );
+    expect(serverError.posts).toEqual([]);
+    const sink = createStreamingEditReplySink(serverError.port, "activity-1");
+    await expect(sink.complete("final", "final")).rejects.toThrow("failed with 502");
+    expect(serverError.posts).toEqual([]);
   });
 });

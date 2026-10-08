@@ -1,7 +1,9 @@
 /**
  * The progress-message pattern: one "Working..." reply per turn, updated in
- * place as progress arrives and replaced by the final text; a failed update
- * falls back to a fresh post so the user always sees the outcome.
+ * place as progress arrives and replaced by the final text; an update the
+ * channel refuses falls back to a fresh post so the user always sees the
+ * outcome, while one that merely failed (timeout, 5xx) is left to the
+ * caller's retry rather than risking a second copy.
  *
  * Ported from Centaur `services/teamsbot/src/reply-sink.ts` (see PORTED.md).
  * The Chat SDK adapter is replaced by a two-method port the Bot Framework
@@ -103,7 +105,23 @@ export function createStreamingEditReplySink(
   };
 }
 
-/** Edit `messageId` with `text`, posting instead when there is none or the edit fails. */
+/**
+ * An update error that says the edit cannot succeed (the channel refused it:
+ * the activity is gone, too old, not the bot's). Anything else, a timeout or a
+ * 5xx, may have applied the edit, so posting instead could produce two copies.
+ */
+function isEditRefusal(error: unknown): boolean {
+  return (
+    typeof error === "object" && error !== null && (error as { refused?: unknown }).refused === true
+  );
+}
+
+/**
+ * Edit `messageId` with `text`, posting instead when there is none or the
+ * channel refused the edit. An update that failed for any other reason is
+ * rethrown: the caller keeps its retry (the control plane retries a failed
+ * completion) and the same edit is attempted again, idempotently.
+ */
 export async function updateOrPost(
   port: ReplySinkPort,
   messageId: string | undefined,
@@ -115,7 +133,8 @@ export async function updateOrPost(
   try {
     await port.update(messageId, text);
     return messageId;
-  } catch {
+  } catch (error) {
+    if (!isEditRefusal(error)) throw error;
     return activityId(await port.post(text));
   }
 }

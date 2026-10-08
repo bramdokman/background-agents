@@ -353,24 +353,48 @@ describe("POST /callbacks/complete", () => {
     expect(h.connectorCalls()).toHaveLength(2);
   });
 
-  it("gives the claim back when the connector refuses, so the retry delivers once", async () => {
-    let refuse = false;
+  it("gives the claim back when the connector fails, so the retry re-attempts the same edit once", async () => {
+    let down = false;
     const h = harness({
       connector: {
-        "PUT *": () => (refuse ? json({ error: "down" }, 502) : json({ id: "updated" })),
-        "POST *": () => (refuse ? json({ error: "down" }, 502) : json({ id: "reply-1" })),
+        "PUT *": () => (down ? json({ error: "down" }, 502) : json({ id: "updated" })),
+        "POST *": () => (down ? json({ error: "down" }, 502) : json({ id: "reply-1" })),
       },
     });
     await h.start();
-    refuse = true;
+    down = true;
     const failed = await h.callback("complete", completePayload());
     expect(failed.status).toBe(503);
-    refuse = false;
+    // A 502 (or a timeout) may have applied the edit: no fresh post, the retry edits again.
+    const afterFailure = h.connectorCalls().filter((call) => call.text === FINAL_TEXT);
+    expect(afterFailure.map((call) => call.method)).toEqual(["PUT"]);
+    down = false;
     const retried = await h.callback("complete", completePayload());
     expect(await retried.json()).toEqual({ ok: true, outcome: "delivered" });
     const finals = h.connectorCalls().filter((call) => call.text === FINAL_TEXT);
-    expect(finals.map((call) => call.method)).toEqual(["PUT", "POST", "PUT"]);
-    expect(h.connectorCalls().filter((call) => call.method === "PUT")).toHaveLength(2);
+    expect(finals.map((call) => [call.method, call.path.split("/").at(-1)])).toEqual([
+      ["PUT", "reply-1"],
+      ["PUT", "reply-1"],
+    ]);
+  });
+
+  it("posts the final message fresh when the connector refuses to edit the placeholder", async () => {
+    const h = harness({
+      connector: {
+        "PUT *": () => json({ error: "activity not found" }, 404),
+      },
+    });
+    await h.start();
+    const response = await h.callback("complete", completePayload());
+    expect(await response.json()).toEqual({ ok: true, outcome: "delivered" });
+    const finals = h.connectorCalls().filter((call) => call.text === FINAL_TEXT);
+    expect(finals.map((call) => [call.method, call.path.split("/").at(-1)])).toEqual([
+      ["PUT", "reply-1"],
+      ["POST", ROOT_ID],
+    ]);
+    const retry = await h.callback("complete", completePayload());
+    expect(await retry.json()).toEqual({ ok: true, outcome: "duplicate" });
+    expect(h.connectorCalls().filter((call) => call.text === FINAL_TEXT)).toHaveLength(2);
   });
 
   it("delivers a retry whose earlier claim was left unfinished by a crashed delivery", async () => {

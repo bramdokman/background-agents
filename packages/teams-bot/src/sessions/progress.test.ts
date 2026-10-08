@@ -42,7 +42,10 @@ function recordingPort(options: { failUpdate?: () => boolean } = {}) {
         return { id: `post-${posts.length}` };
       },
       async update(id: string, text: string) {
-        if (options.failUpdate?.()) throw new Error("update refused");
+        if (options.failUpdate?.()) {
+          // The connector's 4xx: the activity cannot be edited, post instead.
+          throw Object.assign(new Error("update refused"), { status: 404, refused: true });
+        }
         edits.push({ id, text });
         if (gate) await gate.promise;
       },
@@ -139,7 +142,7 @@ describe("progress renderer", () => {
     await expect(progress.finish("thread", "turn-2")).resolves.toBeUndefined();
   });
 
-  it("clips long lines and keeps rendering when an edit and its fallback both fail", async () => {
+  it("clips long lines and keeps rendering when an edit is refused and its fallback fails", async () => {
     const posts: string[] = [];
     const port = {
       async post(text: string) {
@@ -147,7 +150,7 @@ describe("progress renderer", () => {
         throw new Error("connector down");
       },
       async update() {
-        throw new Error("connector down");
+        throw Object.assign(new Error("update refused"), { status: 404, refused: true });
       },
     };
     const progress = createProgressRenderer(silent);

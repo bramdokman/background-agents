@@ -39,13 +39,23 @@ export class ServiceUrlNotAllowedError extends Error {
   }
 }
 
-class BotFrameworkRequestError extends Error {
+export class BotFrameworkRequestError extends Error {
   constructor(
     readonly operation: string,
     readonly status: number
   ) {
     super(`Bot Framework ${operation} failed with ${status}`);
     this.name = "BotFrameworkRequestError";
+  }
+
+  /**
+   * A 4xx is the connector's definitive answer about this request (an
+   * activity that cannot be edited, a malformed one): retrying it the same
+   * way cannot succeed, so a caller may fall back to another action. A 5xx or
+   * a timeout says nothing about whether the request was applied.
+   */
+  get refused(): boolean {
+    return this.status >= 400 && this.status < 500;
   }
 }
 
