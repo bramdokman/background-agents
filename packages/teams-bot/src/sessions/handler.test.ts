@@ -47,6 +47,7 @@ import {
 const WEB_APP_URL = "https://agent-dokman.tailbd0db8.ts.net:10443";
 const CONTROL_PLANE_URL = "http://10.43.250.21:8787";
 const key = makeSigningKey();
+const otherKey = makeSigningKey("other-key");
 const silent = createLogger("test", {}, "error");
 const ROOT_ID = "1759900000001";
 const THREAD_KEY = `${CHANNEL_ID};messageid=${ROOT_ID}`;
@@ -163,19 +164,95 @@ describe("POST /api/messages", () => {
 
   it("answers 400 for a body that is not an activity and 413 for an oversized one", async () => {
     const h = harness({});
-    const bad = await h.app.request("/api/messages", { method: "POST", body: "[]" });
+    const authorization = `Bearer ${mintToken(key, {})}`;
+    const bad = await h.app.request("/api/messages", {
+      method: "POST",
+      headers: { authorization },
+      body: "[]",
+    });
     expect(bad.status).toBe(400);
     const big = await h.app.request("/api/messages", {
       method: "POST",
-      headers: { "content-length": String(300 * 1024) },
+      headers: { authorization, "content-length": String(300 * 1024) },
       body: "{}",
     });
     expect(big.status).toBe(413);
     const oversized = await h.app.request("/api/messages", {
       method: "POST",
+      headers: { authorization },
       body: JSON.stringify({ text: "x".repeat(260 * 1024) }),
     });
     expect(oversized.status).toBe(413);
+    expect(h.controlPlaneCalls()).toEqual([]);
+  });
+
+  it("rejects an unauthenticated request before reading any of its body", async () => {
+    const h = harness({});
+    let pulls = 0;
+    // highWaterMark 0: the stream is pulled only when the route reads it.
+    const lazyBody = () =>
+      new ReadableStream<Uint8Array>(
+        {
+          pull(controller) {
+            pulls += 1;
+            controller.enqueue(new TextEncoder().encode("{}"));
+            controller.close();
+          },
+        },
+        { highWaterMark: 0 }
+      );
+    const response = await h.app.request("/api/messages", {
+      method: "POST",
+      body: lazyBody(),
+      duplex: "half",
+    } as RequestInit);
+    expect(response.status).toBe(401);
+    expect(pulls).toBe(0);
+    const forged = await h.app.request("/api/messages", {
+      method: "POST",
+      headers: { authorization: `Bearer ${mintToken(otherKey, {})}` },
+      body: lazyBody(),
+      duplex: "half",
+    } as RequestInit);
+    expect(forged.status).toBe(401);
+    expect(pulls).toBe(0);
+    // A connector token without a serviceurl claim binds to any activity, so {} is read and acknowledged.
+    const accepted = await h.app.request("/api/messages", {
+      method: "POST",
+      headers: { authorization: `Bearer ${mintToken(key, { serviceurl: undefined })}` },
+      body: lazyBody(),
+      duplex: "half",
+    } as RequestInit);
+    expect(accepted.status).toBe(200);
+    expect(pulls).toBe(1);
+  });
+
+  it("stops reading a chunked body at the cap instead of buffering all of it", async () => {
+    const h = harness({});
+    const chunk = new Uint8Array(64 * 1024).fill(0x78);
+    const totalChunks = 32;
+    let pulls = 0;
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls += 1;
+        controller.enqueue(chunk);
+        if (pulls === totalChunks) controller.close();
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const response = await h.app.request("/api/messages", {
+      method: "POST",
+      headers: { authorization: `Bearer ${mintToken(key, {})}` },
+      body,
+      duplex: "half",
+    } as RequestInit);
+    expect(response.status).toBe(413);
+    expect(cancelled).toBe(true);
+    expect(pulls).toBeLessThan(totalChunks / 2);
+    expect(h.controlPlaneCalls()).toEqual([]);
   });
 
   it("serves the health probe", async () => {

@@ -1,11 +1,14 @@
 /**
  * The HTTP surface: `GET /healthz`, and `POST /api/messages` where the Bot
  * Framework connector delivers activities. The route authenticates the
- * bearer token, acknowledges within the connector's deadline, and hands the
- * activity to the handler in the background. The control plane's callback
- * routes mount under `/callbacks` (see callbacks/routes.ts).
+ * bearer token before it reads a byte of the body, reads the body under a
+ * streaming cap, binds the token to the parsed activity, acknowledges within
+ * the connector's deadline, and hands the activity to the handler in the
+ * background. The control plane's callback routes mount under `/callbacks`
+ * (see callbacks/routes.ts).
  */
 
+import { readBodyCapped } from "@open-inspect/shared/http-body";
 import { Hono } from "hono";
 import type { InboundAuthenticator } from "./bot-framework/auth";
 import { asError, type Logger } from "./logger";
@@ -31,6 +34,21 @@ function isActivity(value: unknown): value is TeamsActivity {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** A declared length over the cap is refused before the body is touched; anything else is checked while reading. */
+function declaresOversizedBody(contentLength: string | undefined): boolean {
+  const declared = Number.parseInt(contentLength ?? "", 10);
+  return Number.isFinite(declared) && declared > MAX_ACTIVITY_BODY_BYTES;
+}
+
+function parseActivity(bytes: Uint8Array): TeamsActivity | undefined {
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(bytes).toString("utf8"));
+    return isActivity(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function createApp(deps: AppDeps): Hono {
   const schedule: BackgroundTaskScheduler =
     deps.schedule ??
@@ -48,42 +66,32 @@ export function createApp(deps: AppDeps): Hono {
     const startedAt = Date.now();
     const traceId = c.req.header("x-trace-id") || crypto.randomUUID();
     const logBase = { trace_id: traceId, http_method: "POST", http_path: "/api/messages" };
-    const declared = Number(c.req.header("content-length") ?? "0");
-    if (declared > MAX_ACTIVITY_BODY_BYTES) {
-      return c.json({ error: "payload too large" }, 413);
-    }
-    const raw = await c.req.text();
-    if (Buffer.byteLength(raw, "utf8") > MAX_ACTIVITY_BODY_BYTES) {
-      return c.json({ error: "payload too large" }, 413);
-    }
-    let activity: unknown;
-    try {
-      activity = JSON.parse(raw);
-    } catch {
-      activity = undefined;
-    }
-    if (!isActivity(activity)) {
+    const rejected = (status: 400 | 401 | 413, reason: string, error: string) => {
       deps.log.warn("http.request", {
         ...logBase,
-        http_status: 400,
+        http_status: status,
         outcome: "rejected",
-        reject_reason: "invalid_payload",
+        reject_reason: reason,
         duration_ms: Date.now() - startedAt,
       });
-      return c.json({ error: "invalid payload" }, 400);
-    }
+      return c.json({ error }, status);
+    };
 
-    const auth = await deps.auth.authenticate(c.req.header("authorization"), activity);
-    if (!auth.ok) {
-      deps.log.warn("http.request", {
-        ...logBase,
-        http_status: 401,
-        outcome: "rejected",
-        reject_reason: auth.reason,
-        duration_ms: Date.now() - startedAt,
-      });
-      return c.json({ error: "unauthorized" }, 401);
+    // The token first: this is the one public route, and nobody without a
+    // valid token gets the bot to buffer or parse anything on their behalf.
+    const auth = await deps.auth.authenticate(c.req.header("authorization"));
+    if (!auth.ok) return rejected(401, auth.reason, "unauthorized");
+
+    if (declaresOversizedBody(c.req.header("content-length"))) {
+      return rejected(413, "payload_too_large", "payload too large");
     }
+    const bytes = await readBodyCapped(c.req.raw.body, MAX_ACTIVITY_BODY_BYTES);
+    if (bytes === null) return rejected(413, "payload_too_large", "payload too large");
+    const activity = parseActivity(bytes);
+    if (!activity) return rejected(400, "invalid_payload", "invalid payload");
+
+    const bound = deps.auth.bindActivity(auth.claims, activity);
+    if (!bound.ok) return rejected(401, bound.reason, "unauthorized");
 
     schedule(deps.handleActivity(activity, traceId));
     deps.log.info("http.request", {

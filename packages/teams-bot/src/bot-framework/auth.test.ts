@@ -26,13 +26,20 @@ function authenticator() {
   return createInboundAuthenticator({ appId: APP_ID, tenantId: TENANT_ID, keys: resolverFor(key) });
 }
 
+/** Both phases as the route runs them: the token first, the activity binding once it is parsed. */
+async function authenticate(header: string | undefined, activity: { serviceUrl?: unknown }) {
+  const auth = authenticator();
+  const result = await auth.authenticate(header);
+  return result.ok ? auth.bindActivity(result.claims, activity) : result;
+}
+
 describe("inbound Bot Framework authentication", () => {
   it("rejects a request without a bearer token", async () => {
-    await expect(authenticator().authenticate(undefined, activity)).resolves.toEqual({
+    await expect(authenticate(undefined, activity)).resolves.toEqual({
       ok: false,
       reason: "missing_token",
     });
-    await expect(authenticator().authenticate("Basic abc", activity)).resolves.toEqual({
+    await expect(authenticate("Basic abc", activity)).resolves.toEqual({
       ok: false,
       reason: "missing_token",
     });
@@ -40,7 +47,7 @@ describe("inbound Bot Framework authentication", () => {
 
   it("rejects a token for another audience", async () => {
     const token = mintToken(key, { aud: "11111111-1111-1111-1111-111111111111" });
-    await expect(authenticator().authenticate(`Bearer ${token}`, activity)).resolves.toEqual({
+    await expect(authenticate(`Bearer ${token}`, activity)).resolves.toEqual({
       ok: false,
       reason: "audience",
     });
@@ -48,7 +55,7 @@ describe("inbound Bot Framework authentication", () => {
 
   it("rejects an audience list with more than the bot", async () => {
     const token = mintToken(key, { aud: [APP_ID, "someone-else"] });
-    await expect(authenticator().authenticate(`Bearer ${token}`, activity)).resolves.toEqual({
+    await expect(authenticate(`Bearer ${token}`, activity)).resolves.toEqual({
       ok: false,
       reason: "audience",
     });
@@ -56,7 +63,7 @@ describe("inbound Bot Framework authentication", () => {
 
   it("accepts a connector token for the bot and returns its claims", async () => {
     const token = mintToken(key, {});
-    const result = await authenticator().authenticate(`Bearer ${token}`, activity);
+    const result = await authenticate(`Bearer ${token}`, activity);
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.claims.iss).toBe(BOT_FRAMEWORK_ISSUER);
@@ -66,11 +73,11 @@ describe("inbound Bot Framework authentication", () => {
 
   it("accepts a token from the bot's own tenant issuer only when the bot is its authorized party", async () => {
     const v2 = mintToken(key, { iss: tenantIssuer(TENANT_ID), azp: APP_ID, tid: TENANT_ID });
-    await expect(authenticator().authenticate(`Bearer ${v2}`, activity)).resolves.toMatchObject({
+    await expect(authenticate(`Bearer ${v2}`, activity)).resolves.toMatchObject({
       ok: true,
     });
     const v1 = mintToken(key, { iss: tenantIssuer(TENANT_ID), appid: APP_ID });
-    await expect(authenticator().authenticate(`Bearer ${v1}`, activity)).resolves.toMatchObject({
+    await expect(authenticate(`Bearer ${v1}`, activity)).resolves.toMatchObject({
       ok: true,
     });
   });
@@ -78,25 +85,28 @@ describe("inbound Bot Framework authentication", () => {
   it("rejects a tenant-issuer token another client in the tenant obtained for the bot's audience", async () => {
     const otherClient = "22222222-3333-4444-5555-666666666666";
     const forAnotherClient = mintToken(key, { iss: tenantIssuer(TENANT_ID), azp: otherClient });
-    await expect(
-      authenticator().authenticate(`Bearer ${forAnotherClient}`, activity)
-    ).resolves.toEqual({ ok: false, reason: "app_id" });
+    await expect(authenticate(`Bearer ${forAnotherClient}`, activity)).resolves.toEqual({
+      ok: false,
+      reason: "app_id",
+    });
     const withoutParty = mintToken(key, { iss: tenantIssuer(TENANT_ID) });
-    await expect(authenticator().authenticate(`Bearer ${withoutParty}`, activity)).resolves.toEqual(
-      { ok: false, reason: "app_id" }
-    );
+    await expect(authenticate(`Bearer ${withoutParty}`, activity)).resolves.toEqual({
+      ok: false,
+      reason: "app_id",
+    });
     const v1ForAnotherClient = mintToken(key, {
       iss: tenantIssuer(TENANT_ID),
       appid: otherClient,
     });
-    await expect(
-      authenticator().authenticate(`Bearer ${v1ForAnotherClient}`, activity)
-    ).resolves.toEqual({ ok: false, reason: "app_id" });
+    await expect(authenticate(`Bearer ${v1ForAnotherClient}`, activity)).resolves.toEqual({
+      ok: false,
+      reason: "app_id",
+    });
   });
 
   it("rejects a tenant-issuer token whose tid names another tenant", async () => {
     const token = mintToken(key, { iss: tenantIssuer(TENANT_ID), azp: APP_ID, tid: "other" });
-    await expect(authenticator().authenticate(`Bearer ${token}`, activity)).resolves.toEqual({
+    await expect(authenticate(`Bearer ${token}`, activity)).resolves.toEqual({
       ok: false,
       reason: "tenant",
     });
@@ -104,14 +114,14 @@ describe("inbound Bot Framework authentication", () => {
 
   it("does not require an authorized party on connector tokens", async () => {
     const token = mintToken(key, { azp: "22222222-3333-4444-5555-666666666666" });
-    await expect(authenticator().authenticate(`Bearer ${token}`, activity)).resolves.toMatchObject({
+    await expect(authenticate(`Bearer ${token}`, activity)).resolves.toMatchObject({
       ok: true,
     });
   });
 
   it("rejects every other issuer", async () => {
     const token = mintToken(key, { iss: "https://login.microsoftonline.com/other-tenant/v2.0" });
-    await expect(authenticator().authenticate(`Bearer ${token}`, activity)).resolves.toEqual({
+    await expect(authenticate(`Bearer ${token}`, activity)).resolves.toEqual({
       ok: false,
       reason: "issuer",
     });
@@ -119,7 +129,7 @@ describe("inbound Bot Framework authentication", () => {
 
   it("rejects a token signed by a key the issuer does not publish", async () => {
     const token = mintToken(otherKey, {});
-    await expect(authenticator().authenticate(`Bearer ${token}`, activity)).resolves.toEqual({
+    await expect(authenticate(`Bearer ${token}`, activity)).resolves.toEqual({
       ok: false,
       reason: "unknown_key",
     });
@@ -127,7 +137,7 @@ describe("inbound Bot Framework authentication", () => {
 
   it("rejects a token whose signature was made with another key under a known kid", async () => {
     const forged = mintToken({ ...otherKey, kid: key.kid }, {});
-    await expect(authenticator().authenticate(`Bearer ${forged}`, activity)).resolves.toEqual({
+    await expect(authenticate(`Bearer ${forged}`, activity)).resolves.toEqual({
       ok: false,
       reason: "bad_signature",
     });
@@ -140,18 +150,18 @@ describe("inbound Bot Framework authentication", () => {
       JSON.stringify({ iss: BOT_FRAMEWORK_ISSUER, aud: APP_ID, exp: 9e9 })
     ).toString("base64url");
     await expect(
-      authenticator().authenticate(`Bearer ${header}.${payload}.${signature}`, activity)
+      authenticate(`Bearer ${header}.${payload}.${signature}`, activity)
     ).resolves.toEqual({ ok: false, reason: "bad_signature" });
   });
 
   it("rejects algorithms other than RS256, including none", async () => {
     const none = mintToken(key, {}, { alg: "none" });
     const hmac = mintToken(key, {}, { alg: "HS256" });
-    await expect(authenticator().authenticate(`Bearer ${none}`, activity)).resolves.toEqual({
+    await expect(authenticate(`Bearer ${none}`, activity)).resolves.toEqual({
       ok: false,
       reason: "unsupported_alg",
     });
-    await expect(authenticator().authenticate(`Bearer ${hmac}`, activity)).resolves.toEqual({
+    await expect(authenticate(`Bearer ${hmac}`, activity)).resolves.toEqual({
       ok: false,
       reason: "unsupported_alg",
     });
@@ -162,45 +172,41 @@ describe("inbound Bot Framework authentication", () => {
     const expired = mintToken(key, { exp: nowSeconds - 6 * 60 });
     const future = mintToken(key, { nbf: nowSeconds + 6 * 60, exp: nowSeconds + 60 * 60 });
     const skewed = mintToken(key, { exp: nowSeconds - 4 * 60 });
-    await expect(authenticator().authenticate(`Bearer ${expired}`, activity)).resolves.toEqual({
+    await expect(authenticate(`Bearer ${expired}`, activity)).resolves.toEqual({
       ok: false,
       reason: "expired",
     });
-    await expect(authenticator().authenticate(`Bearer ${future}`, activity)).resolves.toEqual({
+    await expect(authenticate(`Bearer ${future}`, activity)).resolves.toEqual({
       ok: false,
       reason: "not_yet_valid",
     });
-    await expect(authenticator().authenticate(`Bearer ${skewed}`, activity)).resolves.toMatchObject(
-      {
-        ok: true,
-      }
-    );
+    await expect(authenticate(`Bearer ${skewed}`, activity)).resolves.toMatchObject({
+      ok: true,
+    });
   });
 
   it("rejects a token whose serviceurl claim does not match the activity", async () => {
     const token = mintToken(key, { serviceurl: "https://attacker.example/" });
-    await expect(authenticator().authenticate(`Bearer ${token}`, activity)).resolves.toEqual({
+    await expect(authenticate(`Bearer ${token}`, activity)).resolves.toEqual({
       ok: false,
       reason: "service_url",
     });
     const trailing = mintToken(key, { serviceurl: "https://SMBA.trafficmanager.net/emea" });
-    await expect(
-      authenticator().authenticate(`Bearer ${trailing}`, activity)
-    ).resolves.toMatchObject({
+    await expect(authenticate(`Bearer ${trailing}`, activity)).resolves.toMatchObject({
       ok: true,
     });
-    await expect(authenticator().authenticate(`Bearer ${trailing}`, {})).resolves.toEqual({
+    await expect(authenticate(`Bearer ${trailing}`, {})).resolves.toEqual({
       ok: false,
       reason: "service_url",
     });
   });
 
   it("rejects malformed tokens", async () => {
-    await expect(authenticator().authenticate("Bearer not.a.jwt", activity)).resolves.toEqual({
+    await expect(authenticate("Bearer not.a.jwt", activity)).resolves.toEqual({
       ok: false,
       reason: "malformed",
     });
-    await expect(authenticator().authenticate("Bearer abc", activity)).resolves.toEqual({
+    await expect(authenticate("Bearer abc", activity)).resolves.toEqual({
       ok: false,
       reason: "malformed",
     });

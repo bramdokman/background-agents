@@ -46,11 +46,17 @@ type InboundAuthRejectReason = "missing_token" | JwtRejectReason;
 type InboundAuthResult =
   { ok: true; claims: JwtClaims } | { ok: false; reason: InboundAuthRejectReason };
 
+/**
+ * Two phases, because the token is checked before the body is read: the
+ * public route must not buffer or parse anything for an unauthenticated
+ * caller. `authenticate` settles everything the token alone can answer;
+ * `bindActivity` then holds the token's `serviceurl` claim against the parsed
+ * activity, so a connector token captured from one conversation cannot
+ * authenticate activities for another.
+ */
 export interface InboundAuthenticator {
-  authenticate(
-    authorizationHeader: string | undefined,
-    activity: { serviceUrl?: unknown }
-  ): Promise<InboundAuthResult>;
+  authenticate(authorizationHeader: string | undefined): Promise<InboundAuthResult>;
+  bindActivity(claims: JwtClaims, activity: { serviceUrl?: unknown }): InboundAuthResult;
 }
 
 export interface InboundAuthenticatorOptions {
@@ -76,10 +82,10 @@ export function createInboundAuthenticator(
     options.keys ?? createOpenIdKeyResolver({ issuers, fetch: options.fetch, now: options.now });
   const issuerList = Object.keys(issuers);
   return {
-    async authenticate(authorizationHeader, activity) {
+    async authenticate(authorizationHeader) {
       const token = bearerToken(authorizationHeader);
       if (!token) return { ok: false, reason: "missing_token" };
-      const verified = await verifyBotFrameworkToken(token, {
+      return verifyBotFrameworkToken(token, {
         appId: options.appId,
         issuers: issuerList,
         keys,
@@ -87,11 +93,11 @@ export function createInboundAuthenticator(
         tenantId: options.tenantId,
         now: options.now,
       });
-      if (!verified.ok) return verified;
-      if (!verifyServiceUrlClaim(verified.claims, activity.serviceUrl)) {
-        return { ok: false, reason: "service_url" };
-      }
-      return verified;
+    },
+    bindActivity(claims, activity) {
+      return verifyServiceUrlClaim(claims, activity.serviceUrl)
+        ? { ok: true, claims }
+        : { ok: false, reason: "service_url" };
     },
   };
 }
