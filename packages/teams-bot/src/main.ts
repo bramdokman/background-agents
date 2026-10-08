@@ -9,10 +9,12 @@ import { createApp } from "./app";
 import { createInboundAuthenticator } from "./bot-framework/auth";
 import { createBotFrameworkClient } from "./bot-framework/client";
 import { createClientCredentialsTokenProvider } from "./bot-framework/token";
+import { createCallbacksRouter } from "./callbacks/routes";
 import { loadConfig } from "./config";
 import { ControlPlaneClient } from "./control-plane/client";
 import { asError, createLogger } from "./logger";
-import { createActivityHandler } from "./sessions/handler";
+import { createActivityHandler, createKeyedQueue } from "./sessions/handler";
+import { createProgressRenderer } from "./sessions/progress";
 import { TeamsStateStore } from "./state/store";
 
 /** Inbound claims older than this are pruned; the connector retries within seconds. */
@@ -38,6 +40,7 @@ function main(): void {
     secret: config.serviceAuthSecret,
     log: createLogger("control-plane", {}, config.logLevel),
   });
+  const enqueue = createKeyedQueue();
   const handleActivity = createActivityHandler({
     tenantId: config.tenantId,
     allowedServiceUrlHosts: config.allowedServiceUrlHosts,
@@ -46,11 +49,23 @@ function main(): void {
     bot,
     store,
     log: createLogger("activity", {}, config.logLevel),
+    enqueue,
+  });
+  const callbacks = createCallbacksRouter({
+    secret: config.serviceAuthSecret,
+    store,
+    bot,
+    controlPlane,
+    progress: createProgressRenderer(createLogger("progress", {}, config.logLevel)),
+    webAppUrl: config.webAppUrl,
+    enqueue,
+    log: createLogger("callbacks", {}, config.logLevel),
   });
   const app = createApp({
     auth: createInboundAuthenticator({ appId: config.appId, tenantId: config.tenantId }),
     handleActivity,
     log: createLogger("http", {}, config.logLevel),
+    callbacks,
   });
 
   const server = serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (info) => {

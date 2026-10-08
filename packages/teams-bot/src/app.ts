@@ -2,8 +2,8 @@
  * The HTTP surface: `GET /healthz`, and `POST /api/messages` where the Bot
  * Framework connector delivers activities. The route authenticates the
  * bearer token, acknowledges within the connector's deadline, and hands the
- * activity to the handler in the background. Callback routes arrive in
- * stage 2.
+ * activity to the handler in the background. The control plane's callback
+ * routes mount under `/callbacks` (see callbacks/routes.ts).
  */
 
 import { Hono } from "hono";
@@ -23,6 +23,8 @@ export interface AppDeps {
   log: Logger;
   /** Where the handler's promise goes after the 200; tests collect it. */
   schedule?: BackgroundTaskScheduler;
+  /** The `/callbacks/*` routes; absent only in tests of the inbound path alone. */
+  callbacks?: Hono;
 }
 
 function isActivity(value: unknown): value is TeamsActivity {
@@ -40,6 +42,7 @@ export function createApp(deps: AppDeps): Hono {
   const app = new Hono();
 
   app.get("/healthz", (c) => c.json({ status: "ok", service: "open-inspect-teams-bot" }));
+  if (deps.callbacks) app.route("/callbacks", deps.callbacks);
 
   app.post("/api/messages", async (c) => {
     const startedAt = Date.now();

@@ -84,7 +84,8 @@ function messageActivity(
   };
 }
 
-function referenceAddress(reference: StoredConversationReference): ActivityAddress {
+/** The address a stored conversation reference names, accounts included when they were recorded. */
+export function referenceAddress(reference: StoredConversationReference): ActivityAddress {
   const account = (value: unknown): ChannelAccount | undefined => {
     if (typeof value !== "object" || value === null) return undefined;
     const record = value as Record<string, unknown>;

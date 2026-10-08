@@ -41,12 +41,16 @@ export interface ActivityHandlerDeps {
   bot: BotFrameworkClient;
   store: TeamsStateStore;
   log: Logger;
+  /** The per-thread queue, shared with the callback routes so both sides take turns on a thread. */
+  enqueue?: KeyedQueue;
 }
 
 export type ActivityHandler = (activity: TeamsActivity, traceId: string) => Promise<void>;
 
+export type KeyedQueue = <T>(key: string, task: () => Promise<T>) => Promise<T>;
+
 /** Runs tasks for the same key one after another; different keys run concurrently. */
-export function createKeyedQueue(): <T>(key: string, task: () => Promise<T>) => Promise<T> {
+export function createKeyedQueue(): KeyedQueue {
   const tails = new Map<string, Promise<unknown>>();
   return (key, task) => {
     const previous = tails.get(key) ?? Promise.resolve();
@@ -77,7 +81,7 @@ function accountOf(value: { id?: string; name?: string } | undefined) {
 }
 
 export function createActivityHandler(deps: ActivityHandlerDeps): ActivityHandler {
-  const enqueue = createKeyedQueue();
+  const enqueue = deps.enqueue ?? createKeyedQueue();
 
   const reply = (ctx: ThreadContext, text: string) =>
     deps.bot.replyToActivity(ctx.address, ctx.rootActivityId, text);

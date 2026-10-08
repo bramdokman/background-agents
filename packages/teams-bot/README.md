@@ -19,7 +19,24 @@ service principal, and renders progress back into the Teams thread.
   signed in on the web once are asked to; quota and team denials show the control plane's message.
 - State lives in SQLite (`node:sqlite`) under `TEAMS_BOT_STATE_DIR`: thread to session, conversation
   references, and the claims that make retried activities and callbacks idempotent.
-- `GET /healthz` for probes. Callback routes (`/callbacks/*`) arrive with stage 2.
+- `POST /callbacks/complete`, `/callbacks/tool_call`, `/callbacks/activity`,
+  `/callbacks/thread_closed`: the control plane's reports on a session this bot started. Each body
+  carries `signature`, the hex HMAC-SHA256 of the rest of the body keyed with
+  `SERVICE_AUTH_SECRET_TEAMS_BOT` (the control plane signs with the destination bot's own key; there
+  is no signature header and no nonce). A bad signature is 401 before anything is read or posted; a
+  `timestamp` further than 5 minutes from now (2 for `activity`) is rejected as well.
+  - `tool_call` adds a line under the thread's "Working..." reply; bursts are conflated into one
+    edit (ported Centaur reply sink and conflater).
+  - `complete` reads the turn's events and artifacts back as the user who started the session, then
+    edits "Working..." into the final answer, the pull request link and the web session link. The
+    delivery is claimed in SQLite by `(messageId, kind)` first, so a retried callback posts nothing
+    and a bot restart in between still yields exactly one final message (the stored conversation
+    reference addresses the thread). The reads need the actor the bot stored with the thread:
+    without it (an unknown thread) the final message carries the link only.
+  - `thread_closed` marks the thread closed and posts a short note once.
+  - `activity` is acknowledged; Teams has no indicator to refresh. The control plane currently emits
+    `activity` and `thread_closed` only on Slack paths.
+- `GET /healthz` for probes.
 
 ## Configuration
 
@@ -34,7 +51,11 @@ service principal, and renders progress back into the Teams thread.
 | `WEB_APP_URL`                         | Web app origin for session links.                                         |
 | `TEAMS_BOT_STATE_DIR`                 | SQLite directory, default `/state`.                                       |
 | `TEAMS_BOT_ALLOWED_SERVICE_URL_HOSTS` | Default `*.botframework.com,smba.trafficmanager.net`.                     |
+| `HOST`                                | Listen address, default `0.0.0.0`.                                        |
 | `LOG_LEVEL`                           | `debug`, `info` (default), `warn` or `error`.                             |
+
+Required: `TEAMS_BOT_APP_ID`, `TEAMS_BOT_APP_SECRET`, `TEAMS_BOT_TENANT_ID`, `CONTROL_PLANE_URL`,
+`SERVICE_AUTH_SECRET_TEAMS_BOT`, `WEB_APP_URL`. The rest have the defaults shown.
 
 ## Development
 
@@ -45,7 +66,8 @@ npm run typecheck -w @open-inspect/teams-bot
 npm run build -w @open-inspect/teams-bot && TEAMS_BOT_STATE_DIR=./.state node packages/teams-bot/dist/main.js
 ```
 
-The image is built from the repository root:
-`docker build -f packages/teams-bot/Dockerfile -t open-inspect-teams-bot .`
+The image is built from the repository root (`.dockerignore` admits `packages/teams-bot/`):
+`docker build -f packages/teams-bot/Dockerfile -t open-inspect-teams-bot .`. It runs as the `node`
+user (uid 1000) with its SQLite state on the `/state` volume.
 
 Parts of this package are ported from Centaur's Teams bot; see `PORTED.md`.

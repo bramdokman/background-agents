@@ -48,6 +48,20 @@ export const DEFAULT_FORBIDDEN_MESSAGE = "You are not allowed to do that.";
 
 export const DEFAULT_QUOTA_MESSAGE = "Your usage quota is exhausted for now.";
 
+export const AGENT_COMPLETED_MESSAGE = "_Agent completed._";
+
+export const CREATED_HEADING = "**Created:**";
+
+export const CREATE_PR_LABEL = "Create a pull request";
+
+export const OPEN_SESSION_LABEL = "Open the session";
+
+export const TRUNCATED_NOTE = "_(truncated; the full answer is in the session)_";
+
+export function agentFailedMessage(error: string): string {
+  return `**The agent failed:** ${error}`;
+}
+
 export function signInMessage(webAppUrl: string): string {
   return `Sign in once at ${webAppUrl} with your M365 account, then try again.`;
 }
