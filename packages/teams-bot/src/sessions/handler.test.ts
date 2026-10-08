@@ -568,7 +568,7 @@ describe("POST /api/messages", () => {
       "GET /sessions/session-1/messages?status=processing&limit=1"
     );
     const status = h.replies().at(-1)?.text ?? "";
-    expect(status).toContain(`**Session** ${WEB_APP_URL}/sessions/session-1`);
+    expect(status).toContain(`**Session** ${WEB_APP_URL}/session/session-1`);
     expect(status).toContain("- Repository: ProvidenceIT/playground");
     expect(status).toContain(`- Model: ${DEFAULT_MODEL}`);
     expect(status).toContain("- State: idle");

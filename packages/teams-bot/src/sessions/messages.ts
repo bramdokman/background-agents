@@ -53,7 +53,7 @@ export function signInMessage(webAppUrl: string): string {
 }
 
 export function sessionUrl(webAppUrl: string, sessionId: string): string {
-  return `${webAppUrl}/sessions/${encodeURIComponent(sessionId)}`;
+  return `${webAppUrl}/session/${encodeURIComponent(sessionId)}`;
 }
 
 export function chooseRepositoryMessage(repos: readonly string[]): string {
