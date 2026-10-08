@@ -39,7 +39,7 @@ export class ServiceUrlNotAllowedError extends Error {
   }
 }
 
-export class BotFrameworkRequestError extends Error {
+class BotFrameworkRequestError extends Error {
   constructor(
     readonly operation: string,
     readonly status: number

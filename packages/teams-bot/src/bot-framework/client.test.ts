@@ -143,9 +143,10 @@ describe("Bot Framework REST client", () => {
     });
   });
 
-  it("surfaces connector errors with their status, and the reply port falls back to posting", async () => {
+  it("surfaces connector errors with their status, marks 4xx as refusals, and the reply port can post", async () => {
+    let status = 404;
     const remote = scriptedFetch({
-      "PUT *": () => new Response("gone", { status: 404 }),
+      "PUT *": () => new Response("gone", { status }),
       "POST *": () => Response.json({ id: "fresh" }),
     });
     const client = createBotFrameworkClient({
@@ -156,6 +157,17 @@ describe("Bot Framework REST client", () => {
     await expect(client.updateActivity(address, "old", "text")).rejects.toThrow(
       "Bot Framework updateActivity failed with 404"
     );
+    // A 4xx is the connector's final word on this edit; a 5xx says nothing about whether it applied.
+    await expect(client.updateActivity(address, "old", "text")).rejects.toMatchObject({
+      name: "BotFrameworkRequestError",
+      status: 404,
+      refused: true,
+    });
+    status = 502;
+    await expect(client.updateActivity(address, "old", "text")).rejects.toMatchObject({
+      status: 502,
+      refused: false,
+    });
     const port = client.replyPort(address, "100");
     await expect(port.post("hello")).resolves.toEqual({ id: "fresh" });
     expect(remote.requests.at(-1)?.body).toMatchObject({ replyToId: "100", text: "hello" });
