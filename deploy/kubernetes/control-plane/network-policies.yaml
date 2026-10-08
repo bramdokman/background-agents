@@ -1,6 +1,8 @@
 # The control plane's namespace. Ingress: a web app deployed in this
 # namespace with the label app.kubernetes.io/name=open-inspect-web (not part
-# of these manifests), and sandboxes (the TLS gateway only). Traffic from the
+# of these manifests), and sandboxes (the TLS gateway only). The Microsoft
+# Teams bot, when deployed, is admitted by its own policy in
+# ../teams-bot/teams-bot.yaml (NetworkPolicies are additive). Traffic from the
 # node itself (an ingress controller in host networking) is not subject to
 # policy on most CNIs.
 apiVersion: networking.k8s.io/v1

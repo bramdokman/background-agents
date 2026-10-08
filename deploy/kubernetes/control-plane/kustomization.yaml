@@ -1,8 +1,8 @@
-# The control plane's namespace: the Node host with its sandbox TLS gateway,
-# the sandbox garbage collector and the Microsoft Teams bot. The web app and
-# an object store are deployed separately, however the cluster hosts such
-# things. Apply sandboxes/ as well; its RoleBindings name the ServiceAccounts
-# here.
+# The control plane's namespace: the Node host with its sandbox TLS gateway
+# and the sandbox garbage collector. The web app and an object store are
+# deployed separately, however the cluster hosts such things; the Microsoft
+# Teams bot is opt-in (apply ../teams-bot as well, see docs/TEAMS_BOT.md).
+# Apply sandboxes/ as well; its RoleBindings name the ServiceAccounts here.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
@@ -10,4 +10,3 @@ resources:
   - control-plane.yaml
   - gc-cronjob.yaml
   - network-policies.yaml
-  - teams-bot.yaml

@@ -1,0 +1,15 @@
+# The Microsoft Teams bot, applied on top of control-plane/ by deployments
+# that use it (docs/TEAMS_BOT.md). Kept out of the control-plane kustomization
+# on purpose: the bot needs the out-of-band Secret open-inspect-teams-bot-env
+# and a public path for the Bot Framework, which most deployments do not have,
+# and a Deployment whose envFrom Secret is missing never leaves
+# CreateContainerConfigError.
+#
+#   kubectl apply -k deploy/kubernetes/control-plane
+#   kubectl apply -k deploy/kubernetes/teams-bot
+#
+# Or list both directories as resources of one overlay.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - teams-bot.yaml

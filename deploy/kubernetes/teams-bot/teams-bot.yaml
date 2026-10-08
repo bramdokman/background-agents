@@ -1,6 +1,9 @@
 # The Microsoft Teams bot (packages/teams-bot) as its own Deployment next to
 # the control plane: one replica (its SQLite state is single-writer),
 # Recreate, the state on a small ReadWriteOnce volume mounted at /state.
+# Applied with `kubectl apply -k deploy/kubernetes/teams-bot` on top of the
+# control-plane kustomization (see kustomization.yaml here); it also carries
+# the NetworkPolicy that lets the bot reach the control plane.
 #
 # It is the one workload in this namespace with a public path (Bot Framework
 # posts activities to POST /api/messages) and with outbound internet (the Bot
@@ -132,9 +135,12 @@ spec:
       targetPort: http
 ---
 # Ingress: the control plane (callbacks), on the bot's port only. Traffic
-# from the node itself (an ingress controller or a Funnel proxy in host
+# from the node itself (a Funnel proxy or an ingress controller in host
 # networking) is not subject to policy on most CNIs; where it is, add an
-# ipBlock for the node's addresses in your overlay.
+# ipBlock for the node's addresses in your overlay. A pod-based ingress
+# controller (k3s's Traefik runs as ordinary pods in kube-system) IS
+# filtered: add a rule for it, like the commented one below, or the
+# forwarded POST /api/messages never arrives.
 # Egress: DNS, the control plane (session API), and TCP 443 to the internet
 # for login.microsoftonline.com, *.botframework.com and the Teams service URL
 # (smba.trafficmanager.net), which resolve to changing public addresses.
@@ -158,6 +164,18 @@ spec:
       ports:
         - protocol: TCP
           port: 3100
+    # A pod-based ingress controller that forwards /api/messages; adjust the
+    # namespace and labels to yours (these are k3s's bundled Traefik).
+    # - from:
+    #     - namespaceSelector:
+    #         matchLabels:
+    #           kubernetes.io/metadata.name: kube-system
+    #       podSelector:
+    #         matchLabels:
+    #           app.kubernetes.io/name: traefik
+    #   ports:
+    #     - protocol: TCP
+    #       port: 3100
   egress:
     - to:
         - namespaceSelector:
@@ -190,3 +208,26 @@ spec:
       ports:
         - protocol: TCP
           port: 443
+---
+# The other direction: control-plane-ingress (control-plane/network-policies.yaml)
+# admits only the web app and the sandboxes, so without this additive policy
+# the bot's binding lookups, session creates and prompts are dropped and every
+# message in Teams ends in "I couldn't verify this channel's binding".
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: control-plane-ingress-from-teams-bot
+  namespace: open-inspect
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: open-inspect-control-plane
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: open-inspect-teams-bot
+      ports:
+        - protocol: TCP
+          port: 8787

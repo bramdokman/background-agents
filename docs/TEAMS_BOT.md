@@ -147,9 +147,10 @@ app to users with an app permission policy, and add it to the pilot team.
 
 ## Deployment
 
-The manifests in
-[`deploy/kubernetes/control-plane/teams-bot.yaml`](../deploy/kubernetes/control-plane/teams-bot.yaml)
-add to the control plane's namespace:
+The manifests in [`deploy/kubernetes/teams-bot`](../deploy/kubernetes/teams-bot) are a kustomization
+of their own, applied on top of the control plane's: the bot is opt-in, because it needs a Secret
+and a public path most deployments do not have (a Deployment whose `envFrom` Secret is missing never
+leaves `CreateContainerConfigError`). They add to the control plane's namespace:
 
 - a **Deployment** `open-inspect-teams-bot`, one replica, `Recreate` (the SQLite state is
   single-writer), running as uid 1000 with a read-only root filesystem, readiness and liveness
@@ -161,8 +162,15 @@ add to the control plane's namespace:
 - a **NetworkPolicy** `teams-bot`: ingress on 3100 from the control plane's pods; egress to DNS, to
   the control plane's pods on 8787, and to TCP 443 on public addresses (private ranges excluded) for
   `login.microsoftonline.com`, `*.botframework.com` and the Teams service URL. Traffic from the node
-  itself (an ingress controller or Funnel proxy in host networking) is not filtered by most CNIs;
-  where yours does, add an `ipBlock` for the node's addresses in an overlay.
+  itself (a Funnel proxy or an ingress controller in host networking) is not filtered by most CNIs;
+  where yours does, add an `ipBlock` for the node's addresses in an overlay. A **pod-based ingress
+  controller** (k3s's bundled Traefik runs as ordinary pods in `kube-system`) is filtered: uncomment
+  and adapt the second ingress rule in `teams-bot.yaml` for it, or its forwarded `/api/messages`
+  requests are dropped;
+- a **NetworkPolicy** `control-plane-ingress-from-teams-bot` that admits the bot's pods to the
+  control plane on 8787. The control plane's own `control-plane-ingress` policy admits only the web
+  app and the sandboxes, and NetworkPolicies are additive, so this one is what lets the binding
+  lookups, session creates and prompts through.
 
 The image is built from `packages/teams-bot/Dockerfile` (repository root as the context, like the
 control plane's) and is named `open-inspect-teams-bot:local` in the manifest; rewrite it with a
@@ -175,9 +183,14 @@ Create the Secret out of band, then apply. The keys are the variables above; `TE
 kubectl -n open-inspect create secret generic open-inspect-teams-bot-env \
   --from-env-file=<path to a chmod-600 file with KEY=value lines, outside any repository> \
   --dry-run=client -o yaml | kubectl apply -f -
-kubectl apply -k deploy/kubernetes/control-plane
+kubectl apply -k deploy/kubernetes/control-plane   # if not already applied
+kubectl apply -k deploy/kubernetes/teams-bot
 kubectl -n open-inspect rollout status deploy/open-inspect-teams-bot
 ```
+
+An overlay that deploys both lists the two directories as resources (`../control-plane` and
+`../teams-bot`), rewrites the bot's image with an `images:` entry and, where the public path is
+served by a pod-based ingress controller, patches the `teams-bot` NetworkPolicy as described above.
 
 Add `SERVICE_AUTH_SECRET_TEAMS_BOT` (same value) and
 `TEAMS_BOT_URL=http://open-inspect-teams-bot:3100` to `open-inspect-control-plane-env` and restart
@@ -197,7 +210,9 @@ tailscale funnel --bg --https=8443 --set-path=/api/messages http://<SERVICE_CLUS
 
 `tailscale funnel status` must then show `:8443` with only that path. The messaging endpoint in
 Azure is `https://<tailnet-host>:8443/api/messages`. An ingress controller does the same with a
-single-path rule; terminate TLS there, the bot speaks plain HTTP.
+single-path rule; terminate TLS there, the bot speaks plain HTTP. When the controller runs as pods
+(k3s's Traefik does), the `teams-bot` NetworkPolicy must admit those pods on 3100 (the commented
+rule in `teams-bot.yaml`); otherwise the proxy answers 502/504 and the bot logs nothing.
 
 ### Binding a channel
 
@@ -255,6 +270,7 @@ sign-in links to the existing user when the verified email matches, see
 | 401 on every activity although the endpoint is right                       | `TEAMS_BOT_APP_ID` differs from the Azure Bot's `msaAppId` (the token's audience), or the bot's clock is off by more than the allowed skew.                                                                                                                                                                                                                      |
 | "Sign in once at ..." for a user who did sign in                           | They signed in with GitHub, not Microsoft. Or their Microsoft sign-in was refused (`microsoft_email_unverified`, domain not allowed); see the control plane's `auth.*` log lines.                                                                                                                                                                                |
 | "This channel is not bound to a team..."                                   | The id in the binding is not the channel's `19:...@thread.tacv2` id (decode the link), or the binding is on another team. `GET /channel-bindings/msteams/<id>` as the service answers 404 for an unbound channel.                                                                                                                                                |
+| "I couldn't verify this channel's binding" on every message                | The bot cannot reach the control plane: the `control-plane-ingress-from-teams-bot` NetworkPolicy from `deploy/kubernetes/teams-bot` is missing (the control plane's own ingress policy admits only the web app and sandboxes), `CONTROL_PLANE_URL` is wrong, or the control plane is down. The bot logs `control_plane.channel_binding` with `outcome: error`.   |
 | The session starts but the thread never gets progress or the final message | The control plane cannot reach the bot: `TEAMS_BOT_URL` unset (callbacks are skipped, the log says `skip_reason: no_binding`), the NetworkPolicy blocks it, or `SERVICE_AUTH_SECRET_TEAMS_BOT` differs between the two (the bot logs a signature mismatch and answers 401, the control plane logs `callback.*_delivery_attempt_failed` with `http_status: 401`). |
 | Two final messages                                                         | The dedupe store is not persistent: check the PVC is mounted at `TEAMS_BOT_STATE_DIR` and writable by uid 1000.                                                                                                                                                                                                                                                  |
 | Replies fail with 401/403 from the connector                               | The client secret is wrong or expired (`az ad app credential list --id <APP_ID>`), or the app is multi-tenant while the bot requests a single-tenant token. Rotate with step 4 and restart the bot.                                                                                                                                                              |
