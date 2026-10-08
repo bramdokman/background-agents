@@ -59,15 +59,25 @@ export function createBlockReplySink(
   };
 }
 
-/** Personal chats: the placeholder is edited with every progress update. */
-export function createStreamingEditReplySink(port: ReplySinkPort): TeamsReplySink {
-  let progressActivityId: string | undefined;
-  let flushedText = "";
+/**
+ * The placeholder is edited with every progress update: personal chats in
+ * Centaur, and here also the progress a turn's tool calls write into the
+ * "Working..." reply. With `initialMessageId` the sink edits a placeholder
+ * someone else posted (the one recorded when the prompt was accepted).
+ */
+export function createStreamingEditReplySink(
+  port: ReplySinkPort,
+  initialMessageId?: string
+): TeamsReplySink {
+  let progressActivityId = initialMessageId;
+  let flushedText = progressActivityId ? WORKING_TEXT : "";
   return {
     async begin() {
-      const posted = await port.post(WORKING_TEXT);
-      progressActivityId = activityId(posted);
-      flushedText = progressActivityId ? WORKING_TEXT : "";
+      if (!progressActivityId) {
+        const posted = await port.post(WORKING_TEXT);
+        progressActivityId = activityId(posted);
+        flushedText = progressActivityId ? WORKING_TEXT : "";
+      }
       return { progressActivityId };
     },
     async emit(_delta, fullText) {
