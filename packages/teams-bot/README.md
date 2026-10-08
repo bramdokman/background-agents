@@ -12,8 +12,9 @@ service principal, and renders progress back into the Teams thread.
   against the activity); activities from other tenants are dropped, and a `serviceUrl` outside
   `TEAMS_BOT_ALLOWED_SERVICE_URL_HOSTS` is rejected before any outbound call.
 - Commands after the mention: `owner/repo <prompt>` or `repo:owner/repo <prompt>` starts a session
-  in a new thread (a bare prompt works when the bound team has exactly one repository); a reply in a
-  session's thread is a follow-up prompt; `status`, `stop` and `help`.
+  in a new thread (a bare prompt works when the bound team has exactly one repository); mentioning
+  the bot in a session's thread sends a follow-up prompt (Teams delivers channel messages to a bot
+  only when it is mentioned); `status`, `stop` and `help`.
 - Every control-plane request is sig1-signed as `teams-bot` with `SERVICE_AUTH_SECRET_TEAMS_BOT` and
   asserts the Teams user as `X-OpenInspect-Actor: microsoft:<aadObjectId>`. Users who have not
   signed in on the web once are asked to; quota and team denials show the control plane's message.
@@ -43,19 +44,19 @@ service principal, and renders progress back into the Teams thread.
 
 ## Configuration
 
-| Variable                              | Meaning                                                                   |
-| ------------------------------------- | ------------------------------------------------------------------------- |
-| `TEAMS_BOT_APP_ID`                    | Entra app (client) id of the bot registration; the inbound JWT audience.  |
-| `TEAMS_BOT_APP_SECRET`                | Client secret of that registration (connector token).                     |
-| `TEAMS_BOT_TENANT_ID`                 | The single tenant served; other tenants' activities are dropped.          |
-| `TEAMS_BOT_PORT`                      | Listen port, default `3100`.                                              |
-| `CONTROL_PLANE_URL`                   | Control plane base URL, e.g. `http://10.43.250.21:8787` in-cluster.       |
-| `SERVICE_AUTH_SECRET_TEAMS_BOT`       | sig1 signing secret; the control plane signs callbacks with the same key. |
-| `WEB_APP_URL`                         | Web app origin for session links.                                         |
-| `TEAMS_BOT_STATE_DIR`                 | SQLite directory, default `/state`.                                       |
-| `TEAMS_BOT_ALLOWED_SERVICE_URL_HOSTS` | Default `*.botframework.com,smba.trafficmanager.net`.                     |
-| `HOST`                                | Listen address, default `0.0.0.0`.                                        |
-| `LOG_LEVEL`                           | `debug`, `info` (default), `warn` or `error`.                             |
+| Variable                              | Meaning                                                                      |
+| ------------------------------------- | ---------------------------------------------------------------------------- |
+| `TEAMS_BOT_APP_ID`                    | Entra app (client) id of the bot registration; the inbound JWT audience.     |
+| `TEAMS_BOT_APP_SECRET`                | Client secret of that registration (connector token).                        |
+| `TEAMS_BOT_TENANT_ID`                 | The single tenant served; other tenants' activities are dropped.             |
+| `TEAMS_BOT_PORT`                      | Listen port, default `3100`.                                                 |
+| `CONTROL_PLANE_URL`                   | Control plane base URL, `http://open-inspect-control-plane:8787` in-cluster. |
+| `SERVICE_AUTH_SECRET_TEAMS_BOT`       | sig1 signing secret; the control plane signs callbacks with the same key.    |
+| `WEB_APP_URL`                         | Web app origin for session links.                                            |
+| `TEAMS_BOT_STATE_DIR`                 | SQLite directory, default `/state`.                                          |
+| `TEAMS_BOT_ALLOWED_SERVICE_URL_HOSTS` | Default `*.botframework.com,smba.trafficmanager.net`.                        |
+| `HOST`                                | Listen address, default `0.0.0.0`.                                           |
+| `LOG_LEVEL`                           | `debug`, `info` (default), `warn` or `error`.                                |
 
 Required: `TEAMS_BOT_APP_ID`, `TEAMS_BOT_APP_SECRET`, `TEAMS_BOT_TENANT_ID`, `CONTROL_PLANE_URL`,
 `SERVICE_AUTH_SECRET_TEAMS_BOT`, `WEB_APP_URL`. The rest have the defaults shown.
@@ -73,4 +74,5 @@ The image is built from the repository root (`.dockerignore` admits `packages/te
 `docker build -f packages/teams-bot/Dockerfile -t open-inspect-teams-bot .`. It runs as the `node`
 user (uid 1000) with its SQLite state on the `/state` volume.
 
-Parts of this package are ported from Centaur's Teams bot; see `PORTED.md`.
+Parts of this package are ported from Centaur's Teams bot under its MIT option; see `PORTED.md` and
+`LICENSE-centaur`.

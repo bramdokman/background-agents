@@ -8,11 +8,11 @@ import { generateKeyPairSync, sign, type JsonWebKey, type KeyObject } from "node
 import type { KeyResolver } from "./bot-framework/jwks";
 import type { TeamsActivity } from "./types";
 
-export const APP_ID = "cd86c3d8-53e2-4271-92b8-674063f8bb08";
-export const TENANT_ID = "b13a5250-6976-43e7-828e-523316139f08";
+export const APP_ID = "0b4f1c2d-8e3a-4f5b-9c6d-7e8f9a0b1c2d";
+export const TENANT_ID = "9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a";
 export const OTHER_TENANT_ID = "11111111-2222-3333-4444-555555555555";
 export const SERVICE_URL = "https://smba.trafficmanager.net/emea/";
-export const CHANNEL_ID = "19:f78857599fec4951a2c1116a3f1ade3e@thread.tacv2";
+export const CHANNEL_ID = "19:0123456789abcdef0123456789abcdef@thread.tacv2";
 export const USER_OID = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0";
 export const BOT_FRAMEWORK_ISSUER = "https://api.botframework.com";
 

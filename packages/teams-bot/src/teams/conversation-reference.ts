@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Ported from Centaur (https://github.com/paradigmxyz/centaur, services/teamsbot);
+// copyright and licence in ../../LICENSE-centaur, adaptations listed in ../../PORTED.md.
 /**
  * Conversation references: what the bot stores on first contact so a
  * completion arriving after a restart can still be posted proactively.

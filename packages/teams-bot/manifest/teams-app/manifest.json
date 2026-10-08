@@ -2,20 +2,20 @@
   "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
   "manifestVersion": "1.17",
   "version": "1.0.0",
-  "id": "c60d5314-1474-4809-afbf-cfe6cd39343a",
+  "id": "00000000-0000-0000-0000-000000000001",
   "developer": {
-    "name": "Software Factory",
-    "websiteUrl": "https://agent-dokman.tailbd0db8.ts.net:10443",
-    "privacyUrl": "https://agent-dokman.tailbd0db8.ts.net:10443/privacy",
-    "termsOfUseUrl": "https://agent-dokman.tailbd0db8.ts.net:10443/terms"
+    "name": "Open-Inspect",
+    "websiteUrl": "https://open-inspect.example.com",
+    "privacyUrl": "https://open-inspect.example.com/privacy",
+    "termsOfUseUrl": "https://open-inspect.example.com/terms"
   },
   "name": {
-    "short": "Software Factory",
-    "full": "Software Factory coding agent (Open-Inspect)"
+    "short": "Open-Inspect",
+    "full": "Open-Inspect coding agent"
   },
   "description": {
     "short": "Start and follow Open-Inspect coding sessions from Teams.",
-    "full": "Mention the bot in a channel that is bound to an Open-Inspect team to start a coding session on one of the team's repositories. The bot replies in a new thread, keeps the thread updated while the agent works, and posts the result with a link to the pull request and the web session. Reply in the thread to send follow-up prompts; use 'status' and 'stop' inside a thread, and 'help' anywhere."
+    "full": "Mention the bot in a channel that is bound to an Open-Inspect team to start a coding session on one of the team's repositories. The bot replies in a new thread, keeps the thread updated while the agent works, and posts the result with a link to the pull request and the web session. Mention the bot in the thread to send follow-up prompts; use 'status' and 'stop' inside a thread, and 'help' anywhere."
   },
   "icons": {
     "outline": "outline.png",
@@ -24,7 +24,7 @@
   "accentColor": "#1F2937",
   "bots": [
     {
-      "botId": "cd86c3d8-53e2-4271-92b8-674063f8bb08",
+      "botId": "00000000-0000-0000-0000-000000000000",
       "scopes": ["team", "groupChat", "personal"],
       "isNotificationOnly": false,
       "supportsFiles": false,
@@ -35,12 +35,8 @@
           "scopes": ["team", "groupChat", "personal"],
           "commands": [
             {
-              "title": "start",
-              "description": "<owner/repo> <prompt>: start a session in a new thread"
-            },
-            {
               "title": "status",
-              "description": "In a thread: the session's state, cost and web link"
+              "description": "In a thread: the session's state, repository, model and web link"
             },
             {
               "title": "stop",
@@ -56,5 +52,5 @@
     }
   ],
   "permissions": ["identity", "messageTeamMembers"],
-  "validDomains": ["agent-dokman.tailbd0db8.ts.net"]
+  "validDomains": ["open-inspect.example.com"]
 }

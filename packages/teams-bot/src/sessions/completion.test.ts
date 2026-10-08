@@ -5,7 +5,7 @@ import { json, scriptedFetch, USER_OID } from "../test-support";
 import { fetchAgentResponse, formatCompletionText, truncateError } from "./completion";
 import { AGENT_COMPLETED_MESSAGE, THREAD_CLOSED_MESSAGE } from "./messages";
 
-const WEB_APP_URL = "https://agent-dokman.tailbd0db8.ts.net:10443";
+const WEB_APP_URL = "https://web.example.test";
 const LINK = `[Open the session](${WEB_APP_URL}/session/session-1)`;
 
 function response(overrides: Partial<AgentResponse> = {}): AgentResponse {
@@ -173,7 +173,7 @@ describe("fetchAgentResponse", () => {
         }),
     });
     const client = new ControlPlaneClient({
-      baseUrl: "http://10.43.250.21:8787",
+      baseUrl: "http://open-inspect-control-plane:8787",
       secret: "placeholder-service-secret",
       fetch: remote.fetch,
     });
@@ -201,7 +201,7 @@ describe("fetchAgentResponse", () => {
 
   it("is null when the events cannot be read, and tolerates an artifacts failure", async () => {
     const denied = new ControlPlaneClient({
-      baseUrl: "http://10.43.250.21:8787",
+      baseUrl: "http://open-inspect-control-plane:8787",
       secret: "placeholder-service-secret",
       fetch: scriptedFetch({ "GET *": () => json({ error: "Forbidden" }, 403) }).fetch,
     });
@@ -210,7 +210,7 @@ describe("fetchAgentResponse", () => {
     ).resolves.toBeNull();
 
     const partial = new ControlPlaneClient({
-      baseUrl: "http://10.43.250.21:8787",
+      baseUrl: "http://open-inspect-control-plane:8787",
       secret: "placeholder-service-secret",
       fetch: scriptedFetch({
         "GET /sessions/session-1/events": () => json({ events, hasMore: false }),
@@ -228,7 +228,7 @@ describe("fetchAgentResponse", () => {
       "GET /sessions/session-1/artifacts": () => json({ artifacts: [] }),
     });
     const client = new ControlPlaneClient({
-      baseUrl: "http://10.43.250.21:8787",
+      baseUrl: "http://open-inspect-control-plane:8787",
       secret: "placeholder-service-secret",
       fetch: remote.fetch,
     });

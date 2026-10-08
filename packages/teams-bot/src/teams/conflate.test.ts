@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Ported from Centaur (https://github.com/paradigmxyz/centaur, services/teamsbot);
+// copyright and licence in ../../LICENSE-centaur, adaptations listed in ../../PORTED.md.
 import { describe, expect, it } from "vitest";
 import { conflateTeamsRenderStream, type TeamsRenderChunk } from "./conflate";
 

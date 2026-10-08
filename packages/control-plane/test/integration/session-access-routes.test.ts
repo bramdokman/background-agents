@@ -23,7 +23,7 @@ const MEMBER = "22222222222222222222222222222222";
 const CREATOR = "33333333333333333333333333333333";
 const SLACK_WRITES = ["prompt", "attachments"] as const;
 const SCOPE_REFUSAL = { error: "Slack channel scope denied", code: "slack_channel_scope_denied" };
-const TEAMS_CHANNEL_ID = "19:f78857599fec4951a2c1116a3f1ade3e@thread.tacv2";
+const TEAMS_CHANNEL_ID = "19:0123456789abcdef0123456789abcdef@thread.tacv2";
 /** Each binding provider with the bot that may read through it and a literal external id. */
 const CHANNEL_SCOPES = [
   { provider: "slack", service: "slack-bot", externalId: "C1" },
@@ -386,7 +386,7 @@ describe("HTTP session access by enforcement mode", () => {
   it.each([
     "msteams:",
     "msteams:C1",
-    "msteams:19:f78857599fec4951a2c1116a3f1ade3e",
+    "msteams:19:0123456789abcdef0123456789abcdef",
     `msteams:${TEAMS_CHANNEL_ID}:extra`,
     `slack:${TEAMS_CHANNEL_ID}`,
     `linear:${TEAMS_CHANNEL_ID}`,

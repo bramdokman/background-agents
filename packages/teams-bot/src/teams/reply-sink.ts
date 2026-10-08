@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Ported from Centaur (https://github.com/paradigmxyz/centaur, services/teamsbot);
+// copyright and licence in ../../LICENSE-centaur, adaptations listed in ../../PORTED.md.
 /**
  * The progress-message pattern: one "Working..." reply per turn, updated in
  * place as progress arrives and replaced by the final text; an update the

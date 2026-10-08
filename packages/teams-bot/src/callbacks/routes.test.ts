@@ -41,8 +41,8 @@ import {
 import { MSTEAMS_THREAD_CLOSED_KIND } from "./schemas";
 import { createCallbacksRouter } from "./routes";
 
-const WEB_APP_URL = "https://agent-dokman.tailbd0db8.ts.net:10443";
-const CONTROL_PLANE_URL = "http://10.43.250.21:8787";
+const WEB_APP_URL = "https://web.example.test";
+const CONTROL_PLANE_URL = "http://open-inspect-control-plane:8787";
 const SECRET = "placeholder-service-secret";
 const key = makeSigningKey();
 const silent = createLogger("test", {}, "error");

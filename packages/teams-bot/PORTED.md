@@ -1,13 +1,15 @@
 # Ported code
 
 Parts of this package are ported from Centaur's Teams bot (`services/teamsbot` in
-`https://github.com/ProvidenceIT/centaur`). Centaur is licensed under **Apache-2.0 OR MIT**, at the
-user's option (`LICENSE` at the repository root, `SPDX-License-Identifier: Apache-2.0 OR MIT`); the
-ported files are used here under the MIT option and keep that licence. Open-Inspect's own licence
-covers the rest of this package.
+[paradigmxyz/centaur](https://github.com/paradigmxyz/centaur)). Centaur is licensed under
+**Apache-2.0 OR MIT**, at the user's option (`LICENSE` at the repository root,
+`SPDX-License-Identifier: Apache-2.0 OR MIT`); the ported files are used here under the MIT option.
+The MIT licence text and the copyright notice that accompany them are in
+[`LICENSE-centaur`](LICENSE-centaur), and each ported file carries an `SPDX-License-Identifier: MIT`
+header that points there. Open-Inspect's own licence covers the rest of this package.
 
-- Source: `/home/bd/src/software-factory/repos/centaur`, `services/teamsbot/`
-- Source commit: `bf32a63504eec5a9d82c09d2a4eb121e1f037796` (`origin/main` at the time of the port)
+- Source: `https://github.com/paradigmxyz/centaur`, path `services/teamsbot/`
+- Source commit: `bf32a63504eec5a9d82c09d2a4eb121e1f037796` (`main` at the time of the port)
 - Ported on 2026-10-08 for Open-Inspect milestone 2 (the `msteams` bot)
 
 ## Files

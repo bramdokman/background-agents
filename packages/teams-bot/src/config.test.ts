@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { ConfigError, DEFAULT_ALLOWED_SERVICE_URL_HOSTS, loadConfig } from "./config";
 
-const APP_ID = "cd86c3d8-53e2-4271-92b8-674063f8bb08";
-const TENANT_ID = "b13a5250-6976-43e7-828e-523316139f08";
+const APP_ID = "0b4f1c2d-8e3a-4f5b-9c6d-7e8f9a0b1c2d";
+const TENANT_ID = "9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a";
 
 const complete = {
   TEAMS_BOT_APP_ID: APP_ID,
   TEAMS_BOT_APP_SECRET: "placeholder-app-secret",
   TEAMS_BOT_TENANT_ID: TENANT_ID,
-  CONTROL_PLANE_URL: "http://10.43.250.21:8787/",
+  CONTROL_PLANE_URL: "http://open-inspect-control-plane:8787/",
   SERVICE_AUTH_SECRET_TEAMS_BOT: "placeholder-service-secret",
-  WEB_APP_URL: "https://agent-dokman.tailbd0db8.ts.net:10443/",
+  WEB_APP_URL: "https://web.example.test/",
 };
 
 describe("loadConfig", () => {
@@ -22,9 +22,9 @@ describe("loadConfig", () => {
       tenantId: TENANT_ID,
       host: "0.0.0.0",
       port: 3100,
-      controlPlaneUrl: "http://10.43.250.21:8787",
+      controlPlaneUrl: "http://open-inspect-control-plane:8787",
       serviceAuthSecret: "placeholder-service-secret",
-      webAppUrl: "https://agent-dokman.tailbd0db8.ts.net:10443",
+      webAppUrl: "https://web.example.test",
       stateDir: "/state",
       allowedServiceUrlHosts: ["*.botframework.com", "smba.trafficmanager.net"],
       logLevel: "info",

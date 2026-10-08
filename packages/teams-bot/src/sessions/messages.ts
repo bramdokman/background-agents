@@ -7,7 +7,7 @@ export const HELP_TEXT = [
   "",
   "- `@bot owner/repo <prompt>` or `@bot repo:owner/repo <prompt>` starts a session in a new thread.",
   "- `@bot <prompt>` does the same when this channel's team has exactly one repository.",
-  "- Reply in a session's thread to send a follow-up prompt.",
+  "- Mention me in a session's thread to send a follow-up prompt.",
   "- `@bot status` and `@bot stop` work inside a session's thread.",
   "- `!model <id>` and `!reasoning <effort>` at the start of a prompt pick the model for it.",
 ].join("\n");

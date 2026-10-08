@@ -20,7 +20,7 @@ vi.mock("../auth/authenticate", async (importOriginal) => ({
 }));
 afterEach(() => vi.restoreAllMocks());
 
-const TEAMS_CHANNEL_ID = "19:f78857599fec4951a2c1116a3f1ade3e@thread.tacv2";
+const TEAMS_CHANNEL_ID = "19:0123456789abcdef0123456789abcdef@thread.tacv2";
 
 /** Each binding provider, the bot that may scope by it, and the actor namespace that bot asserts. */
 const CHANNEL_SCOPES = [

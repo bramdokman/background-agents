@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CHANNEL_SCOPE_BOTS, parseChannelScope } from "./channel-scope";
 
-const TEAMS_CHANNEL_ID = "19:f78857599fec4951a2c1116a3f1ade3e@thread.tacv2";
+const TEAMS_CHANNEL_ID = "19:0123456789abcdef0123456789abcdef@thread.tacv2";
 
 describe("signed channel scope", () => {
   it.each([
@@ -27,8 +27,8 @@ describe("signed channel scope", () => {
     `linear:${TEAMS_CHANNEL_ID}`,
     "msteams:",
     "msteams:C1",
-    "msteams:19:f78857599fec4951a2c1116a3f1ade3e",
-    "msteams:f78857599fec4951a2c1116a3f1ade3e@thread.tacv2",
+    "msteams:19:0123456789abcdef0123456789abcdef",
+    "msteams:0123456789abcdef0123456789abcdef@thread.tacv2",
     "msteams:19:f788 57599fec4951a2c1116a3f1ade3e@thread.tacv2",
     `msteams:${TEAMS_CHANNEL_ID}:other`,
     `msteams:${TEAMS_CHANNEL_ID}@other`,

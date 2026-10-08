@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Ported from Centaur (https://github.com/paradigmxyz/centaur, services/teamsbot);
+// copyright and licence in ../../LICENSE-centaur, adaptations listed in ../../PORTED.md.
 /**
  * Inbound activity normalisation: mention stripping, quoted-reply context,
  * the tenant gate and the Teams ids an activity carries.

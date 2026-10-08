@@ -17,7 +17,7 @@ actor namespace and the `teams-bot` service principal) is described in
 | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `@Software Factory acme/web add a README badge` or `@Software Factory repo:acme/web add ...` | Starts a session for the team the channel is bound to, on that repository, and replies in a new thread with "Working...".                                                                               |
 | `@Software Factory add a README badge` (no repository)                                       | Same, when the bound team holds exactly one repository grant; otherwise the bot asks for the repository.                                                                                                |
-| A reply inside a thread that has a session                                                   | Delivered to that session as a follow-up prompt. No new session.                                                                                                                                        |
+| `@Software Factory <prompt>` inside a thread that has a session                              | Delivered to that session as a follow-up prompt. No new session. The mention is required: Teams delivers a channel message to a bot only when the bot is mentioned (no `ChannelMessage.Read.Group`).    |
 | `status` inside a thread                                                                     | The session's state (working, idle or closed), repository, model, start time and web link.                                                                                                              |
 | `stop` inside a thread                                                                       | Stops the running turn; the bot confirms in the thread.                                                                                                                                                 |
 | `help`, or anything the bot cannot parse                                                     | Usage text. No control-plane call.                                                                                                                                                                      |
@@ -123,8 +123,10 @@ resource). Replace the placeholders with your values; nothing below prints a sec
 ### Teams app manifest
 
 [`packages/teams-bot/manifest/teams-app/manifest.json`](../packages/teams-bot/manifest/teams-app/manifest.json)
-is a schema 1.17 manifest with the two placeholder icons next to it. Things to know when you adapt
-it:
+is a schema 1.17 manifest with the two placeholder icons next to it. Every identifier in it is a
+placeholder to substitute: `id` (your app's GUID), `bots[0].botId` (your bot's app id),
+`developer.*Url` and `validDomains` (your web app's host), and the names. Things to know when you
+adapt it:
 
 - `id` is the Teams app's own GUID, distinct from the bot id. To **update** an app that is already
   in your org catalog, keep its `id` and raise `version`; a different `id` is a new app.
@@ -133,7 +135,8 @@ it:
   chats; sessions need a bound channel, so the latter two are useful for `help` and `status` only
   until group and personal chats are supported.
 - `commandLists` are display hints that appear when a user types `@` the bot. Keep them in step with
-  what the bot parses (`start`, `status`, `stop`, `help`).
+  what the bot parses (`status`, `stop`, `help`; a session starts from `owner/repo <prompt>`, there
+  is no `start` keyword).
 - `validDomains` must list the host of every link the bot posts (the web app's host). Teams refuses
   to render links to hosts outside it in some surfaces.
 - `developer.websiteUrl`, `privacyUrl` and `termsOfUseUrl` must be `https://` URLs; the catalog

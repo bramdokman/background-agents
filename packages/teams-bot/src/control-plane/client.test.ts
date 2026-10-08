@@ -13,7 +13,7 @@ import { ControlPlaneClient, microsoftActor } from "./client";
 import { json, scriptedFetch, USER_OID, type RecordedRequest } from "../test-support";
 
 const SECRET = "placeholder-service-secret";
-const BASE_URL = "http://10.43.250.21:8787";
+const BASE_URL = "http://open-inspect-control-plane:8787";
 const actor = microsoftActor(USER_OID);
 
 /** Recompute the sig1 signature the control plane would and compare it with the header sent. */

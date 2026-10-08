@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Ported from Centaur (https://github.com/paradigmxyz/centaur, services/teamsbot);
+// copyright and licence in ../../LICENSE-centaur, adaptations listed in ../../PORTED.md.
 /**
  * Conflates a stream of render chunks: text deltas that arrive while the
  * consumer is busy are concatenated into one, and a terminal chunk is held

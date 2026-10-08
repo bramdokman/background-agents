@@ -16,7 +16,7 @@ describe("client-credentials token provider", () => {
   it("requests a token from the single tenant with the connector scope and caches it", async () => {
     let now = 1_000_000;
     const remote = scriptedFetch({
-      "POST /b13a5250-6976-43e7-828e-523316139f08/oauth2/v2.0/token": () =>
+      "POST /9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a/oauth2/v2.0/token": () =>
         Response.json({
           access_token: "placeholder-token",
           expires_in: 3600,

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Ported from Centaur (https://github.com/paradigmxyz/centaur, services/teamsbot);
+// copyright and licence in ../LICENSE-centaur, adaptations listed in ../PORTED.md.
 /**
  * Bot Framework activity shapes as Teams sends them, and the stored
  * conversation reference derived from them.
