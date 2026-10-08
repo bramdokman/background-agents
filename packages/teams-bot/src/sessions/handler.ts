@@ -27,6 +27,7 @@ import {
   HELP_TEXT,
   NO_IDENTITY_MESSAGE,
   NO_SESSION_IN_THREAD_MESSAGE,
+  SESSION_NOT_ACCESSIBLE_MESSAGE,
   sessionUrl,
   STOP_FAILED_MESSAGE,
   STOP_REQUESTED_MESSAGE,
@@ -169,8 +170,22 @@ export function createActivityHandler(deps: ActivityHandlerDeps): ActivityHandle
     );
     if (!prompt.ok) {
       if (prompt.reason === "not_found") {
-        deps.store.closeThreadSession(ctx.threadKey, thread.sessionId);
-        await reply(ctx, THREAD_CLOSED_MESSAGE);
+        // The control plane also answers 404 when THIS user may not read the
+        // session (private, or team enforcement), so only the user who started
+        // it can tell us the session is really gone; anyone else is told they
+        // cannot reach it, and the thread stays open for its owner.
+        if (thread.actor === ctx.actor) {
+          deps.store.closeThreadSession(ctx.threadKey, thread.sessionId);
+          await reply(ctx, THREAD_CLOSED_MESSAGE);
+          return;
+        }
+        deps.log.info("follow_up.denied", {
+          trace_id: ctx.traceId,
+          thread_key: ctx.threadKey,
+          session_id: thread.sessionId,
+          http_status: prompt.status,
+        });
+        await reply(ctx, SESSION_NOT_ACCESSIBLE_MESSAGE);
         return;
       }
       await reply(ctx, renderFailure(prompt, deps.webAppUrl, FOLLOW_UP_FAILED_MESSAGE));

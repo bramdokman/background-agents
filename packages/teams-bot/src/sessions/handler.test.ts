@@ -36,6 +36,7 @@ import { createActivityHandler, createKeyedQueue } from "./handler";
 import {
   HELP_TEXT,
   NO_SESSION_IN_THREAD_MESSAGE,
+  SESSION_NOT_ACCESSIBLE_MESSAGE,
   STOP_REQUESTED_MESSAGE,
   THREAD_CLOSED_MESSAGE,
   UNBOUND_CHANNEL_MESSAGE,
@@ -576,7 +577,64 @@ describe("POST /api/messages", () => {
     });
   });
 
-  it("closes the thread when the session is gone and refuses later follow-ups", async () => {
+  it("does not close the thread when another user gets a 404; the owner's follow-ups still go through", async () => {
+    let denyOnce = true;
+    const h = harness({
+      [`GET /channel-bindings/msteams/${CHANNEL_ID}`]: boundChannel,
+      "POST /sessions/session-1/prompt": (request) => {
+        if (request.headers[ACTOR_HEADER.toLowerCase()] !== `microsoft:${USER_OID}` && denyOnce) {
+          denyOnce = false;
+          return json({ error: "Session not found" }, 404);
+        }
+        return promptQueued(request);
+      },
+    });
+    h.store.putThreadSession({
+      threadKey: THREAD_KEY,
+      sessionId: "session-1",
+      actor: `microsoft:${USER_OID}`,
+      teamId: "team-platform",
+      repoFullName: "ProvidenceIT/playground",
+      model: DEFAULT_MODEL,
+      reasoningEffort: null,
+      serviceUrl: SERVICE_URL,
+      channelId: CHANNEL_ID,
+      rootActivityId: ROOT_ID,
+    });
+    const outsider = "99999999-8888-7777-6666-555555555555";
+    await h.post(
+      activityFixture({
+        id: "2",
+        replyToId: ROOT_ID,
+        from: { id: "29:2user", name: "Riley", aadObjectId: outsider },
+        text: "<at>Open-Inspect</at> hi",
+      })
+    );
+    expect(h.replies().map((reply) => reply.text)).toEqual([SESSION_NOT_ACCESSIBLE_MESSAGE]);
+    expect(h.store.getThreadSession(THREAD_KEY)?.closed).toBe(false);
+
+    await h.post(
+      activityFixture({ id: "3", replyToId: ROOT_ID, text: "<at>Open-Inspect</at> continue" })
+    );
+    expect(h.controlPlaneCalls()).toEqual([
+      "POST /sessions/session-1/prompt",
+      "POST /sessions/session-1/prompt",
+    ]);
+    expect(h.controlPlaneRemote.requests[1].headers[ACTOR_HEADER.toLowerCase()]).toBe(
+      `microsoft:${USER_OID}`
+    );
+    expect(h.replies().map((reply) => reply.text)).toEqual([
+      SESSION_NOT_ACCESSIBLE_MESSAGE,
+      WORKING_TEXT,
+    ]);
+    expect(h.store.getThreadSession(THREAD_KEY)).toMatchObject({
+      closed: false,
+      lastMessageId: "message-1",
+      turnState: "working",
+    });
+  });
+
+  it("closes the thread when the session is gone for its owner and refuses later follow-ups", async () => {
     const h = harness({
       [`GET /channel-bindings/msteams/${CHANNEL_ID}`]: boundChannel,
       "POST /sessions": sessionCreated,

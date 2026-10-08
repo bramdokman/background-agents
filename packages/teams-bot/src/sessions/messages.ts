@@ -26,6 +26,9 @@ export const NO_SESSION_IN_THREAD_MESSAGE =
 
 export const THREAD_CLOSED_MESSAGE = "This session is no longer available from this thread.";
 
+export const SESSION_NOT_ACCESSIBLE_MESSAGE =
+  "I can't reach this session for you: it may be private or belong to a team you are not in. The person who started it can continue here; ask them, or open it on the web.";
+
 export const NO_IDENTITY_MESSAGE =
   "I can't tell who you are: your Teams account carries no directory identity. Ask an administrator to check the bot's permissions.";
 
