@@ -9,7 +9,7 @@ import {
 import type { RouteAuthorizationDecision } from "../authorization/request-audit";
 import { AuthorizationError, AuthorizationService } from "../authorization/service";
 import { serviceAllowsPermission } from "../authorization/service-permissions";
-import { parseChannelScope } from "../authorization/channel-scope";
+import { CHANNEL_SCOPE_BOTS, parseChannelScope } from "../authorization/channel-scope";
 import { evaluateSessionAdmission } from "../authorization/session-admission";
 import { legacyPermissionForAction } from "../authorization/teams-enforcement";
 import { TeamChannelBindingStore } from "../db/team-channel-bindings";
@@ -626,7 +626,7 @@ async function enforceSessionRequirement(
       }
       if (channels.length > 0) {
         const scope = channels.length === 1 ? parseChannelScope(channels[0]) : null;
-        if (!scope || ctx.principal.service !== `${scope.provider}-bot`) {
+        if (!scope || ctx.principal.service !== CHANNEL_SCOPE_BOTS[scope.provider]) {
           return authorizationDenial(
             error("Session not found", 404),
             evidence,

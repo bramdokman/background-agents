@@ -5,7 +5,7 @@
 
 import { isWorkspaceAdmin } from "@open-inspect/shared/rbac";
 import type { Team } from "@open-inspect/shared/types/teams";
-import { parseChannelScope } from "../authorization/channel-scope";
+import { CHANNEL_SCOPE_BOTS, parseChannelScope } from "../authorization/channel-scope";
 import { auditRouteAuthorizationDecision } from "../authorization/request-audit";
 import { TeamChannelBindingStore } from "../db/team-channel-bindings";
 import { TeamMembershipStore } from "../db/team-memberships";
@@ -16,6 +16,19 @@ import { error, json } from "../http/responses";
 import type { RequestContext } from "../http/request-context";
 
 export type TeamRepositoryGrants = Awaited<ReturnType<TeamRepositoryGrantStore["listForTeam"]>>;
+
+/** A malformed scope is refused in Slack's terms: the provider could not be read from it. */
+const CATALOG_SCOPE_REFUSALS = {
+  slack: { error: "Slack channel scope denied", code: "slack_channel_scope_denied" },
+  linear: { error: "Linear channel scope denied", code: "linear_channel_scope_denied" },
+  msteams: {
+    error: "Microsoft Teams channel scope denied",
+    code: "msteams_channel_scope_denied",
+  },
+} as const;
+
+/** The bots whose catalog reads are scoped by a channel binding, never by a `teamId` they supply. */
+const CHANNEL_SCOPED_BOTS: ReadonlySet<string> = new Set(Object.values(CHANNEL_SCOPE_BOTS));
 
 /** Null is unscoped; an explicit workspace scope must not include other teams' resources. */
 export async function resolveCatalogScope(
@@ -28,14 +41,11 @@ export async function resolveCatalogScope(
   const channels = query.getAll("channel");
   if (channels.length > 0) {
     const scope = channels.length === 1 ? parseChannelScope(channels[0]) : null;
-    const refusal =
-      scope?.provider === "linear"
-        ? { error: "Linear channel scope denied", code: "linear_channel_scope_denied" }
-        : { error: "Slack channel scope denied", code: "slack_channel_scope_denied" };
+    const refusal = CATALOG_SCOPE_REFUSALS[scope?.provider ?? "slack"];
     if (!scope || query.has("teamId")) return json(refusal, 400);
     if (
       ctx.principal?.kind !== "service" ||
-      ctx.principal.service !== `${scope.provider}-bot` ||
+      ctx.principal.service !== CHANNEL_SCOPE_BOTS[scope.provider] ||
       (!ctx.authorization && (scope.provider !== "linear" || ctx.principal.actor))
     ) {
       return json(refusal, 403);
@@ -63,7 +73,7 @@ export async function resolveCatalogScope(
   if (
     query.has("teamId") &&
     ctx.principal?.kind === "service" &&
-    (ctx.principal.service === "slack-bot" || ctx.principal.service === "linear-bot")
+    CHANNEL_SCOPED_BOTS.has(ctx.principal.service)
   ) {
     return denyTeamCatalog(request, ctx, catalogTeamId, path);
   }
