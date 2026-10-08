@@ -7,11 +7,13 @@
  * thread.
  *
  * Exactly one final message per `(messageId)`: the delivery claim in SQLite
- * is taken before anything is posted and given back only when posting
- * failed, so the control plane's retry gets through and a duplicate does
- * nothing. Reads happen as the user who started the session; when they fail,
- * the final message still goes out with the session link, since a retry
- * would not change the answer.
+ * is taken before anything is posted, marked posted once the message is out,
+ * and given back when posting failed, so the control plane's retry gets
+ * through and a duplicate does nothing. A claim left unfinished by a process
+ * that died mid-delivery is released at startup and expires on its own, so a
+ * later redelivery still posts the message. Reads happen as the user who
+ * started the session; when they fail, the final message still goes out with
+ * the session link, since a retry would not change the answer.
  */
 
 import {
@@ -285,6 +287,7 @@ export async function deliverCompletion(
     const progressId = await deps.progress.finish(threadKey, ownPlaceholder ?? null);
     const target = progressId ?? ownPlaceholder ?? undefined;
     const finalId = await updateOrPost(port, target, text);
+    deps.store.markCallbackPosted(input.messageId, COMPLETE_KIND);
     if (isCurrentTurn) {
       deps.store.updateThreadSession(threadKey, { turnState: "idle", progressActivityId: null });
     }
@@ -379,6 +382,7 @@ export async function deliverThreadClosed(
     const { address, replyToId } = resolveAddress(deps.store, threadKey, input.context, mapped);
     const port = deps.bot.replyPort(address, replyToId);
     await port.post(THREAD_CLOSED_MESSAGE);
+    deps.store.markCallbackPosted(input.sessionId, THREAD_CLOSED_KIND);
     deps.log.info("callback.thread_closed", { ...logBase, outcome: "success" });
     return "delivered";
   } catch (error) {

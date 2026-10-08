@@ -3,7 +3,7 @@
  * no native dependency): the thread -> session map, the conversation
  * references needed to post proactively after a restart, and the claims that
  * make retried deliveries idempotent (inbound activities by id, callbacks by
- * `(messageId, kind)`).
+ * `(messageId, kind)`, finished once the message is posted).
  *
  * Single writer by construction: the Deployment runs one replica, and
  * node:sqlite's synchronous API serialises every statement within it.
@@ -121,9 +121,19 @@ CREATE TABLE IF NOT EXISTS callback_deliveries (
   message_id TEXT NOT NULL,
   kind TEXT NOT NULL,
   claimed_at INTEGER NOT NULL,
+  posted_at INTEGER,
   PRIMARY KEY (message_id, kind)
 );
 `;
+
+/**
+ * A claim that was taken this long ago and never finished belongs to a
+ * delivery that died mid-flight (the process is single-writer and serialises
+ * a thread's callbacks, so a live delivery cannot be older than its own
+ * reads and posts). Longer than the slowest honest completion: 25 event pages
+ * of 20 s each plus the connector round trips.
+ */
+export const STALE_CALLBACK_CLAIM_MS = 15 * 60 * 1000;
 
 function toRecord(row: ThreadSessionRow): ThreadSessionRecord {
   return {
@@ -154,6 +164,17 @@ export class TeamsStateStore {
     db.exec("PRAGMA busy_timeout = 5000");
     db.exec("PRAGMA foreign_keys = ON");
     db.exec(SCHEMA);
+    this.migrate();
+  }
+
+  /** Columns added after the first schema; a database created earlier gains them here. */
+  private migrate(): void {
+    const columns = this.db
+      .prepare("PRAGMA table_info(callback_deliveries)")
+      .all() as unknown as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "posted_at")) {
+      this.db.exec("ALTER TABLE callback_deliveries ADD COLUMN posted_at INTEGER");
+    }
   }
 
   /** The store on disk under `stateDir`, created on first use. */
@@ -326,16 +347,32 @@ export class TeamsStateStore {
   }
 
   /**
-   * Claim a callback delivery by `(messageId, kind)`. True the first time;
-   * false when it was already claimed, so a retried callback renders nothing.
+   * Claim a callback delivery by `(messageId, kind)`. True the first time,
+   * and again when an earlier claim was never finished (see
+   * {@link markCallbackPosted}) and is older than `staleAfterMs`: that
+   * delivery died before it posted, and the retry must be allowed through.
+   * False for a finished delivery or one still in flight, so a retried
+   * callback renders nothing.
    */
-  claimCallback(messageId: string, kind: string): boolean {
+  claimCallback(messageId: string, kind: string, staleAfterMs = STALE_CALLBACK_CLAIM_MS): boolean {
+    const now = this.now();
     const result = this.db
       .prepare(
-        "INSERT OR IGNORE INTO callback_deliveries (message_id, kind, claimed_at) VALUES (?, ?, ?)"
+        `INSERT INTO callback_deliveries (message_id, kind, claimed_at, posted_at)
+         VALUES (?, ?, ?, NULL)
+         ON CONFLICT(message_id, kind) DO UPDATE SET claimed_at = excluded.claimed_at
+           WHERE callback_deliveries.posted_at IS NULL
+             AND callback_deliveries.claimed_at <= excluded.claimed_at - ?`
       )
-      .run(messageId, kind, this.now());
+      .run(messageId, kind, now, staleAfterMs);
     return result.changes > 0;
+  }
+
+  /** The delivery posted its message: the claim is final and no retry may post again. */
+  markCallbackPosted(messageId: string, kind: string): void {
+    this.db
+      .prepare("UPDATE callback_deliveries SET posted_at = ? WHERE message_id = ? AND kind = ?")
+      .run(this.now(), messageId, kind);
   }
 
   /** Give a claim back when rendering failed, so the control plane's retry gets through. */
@@ -343,5 +380,15 @@ export class TeamsStateStore {
     this.db
       .prepare("DELETE FROM callback_deliveries WHERE message_id = ? AND kind = ?")
       .run(messageId, kind);
+  }
+
+  /**
+   * At startup: nothing is in flight in a fresh process, so every unfinished
+   * claim was left by a delivery the previous process did not live to
+   * complete. Releasing them lets a redelivery post the message.
+   */
+  releaseUnpostedCallbacks(): number {
+    const result = this.db.prepare("DELETE FROM callback_deliveries WHERE posted_at IS NULL").run();
+    return Number(result.changes);
   }
 }

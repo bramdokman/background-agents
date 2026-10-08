@@ -1,8 +1,9 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { STATE_FILE_NAME, TeamsStateStore } from "./store";
+import { STALE_CALLBACK_CLAIM_MS, STATE_FILE_NAME, TeamsStateStore } from "./store";
 
 const threadKey = "19:chan@thread.tacv2;messageid=100";
 
@@ -141,6 +142,51 @@ describe("TeamsStateStore", () => {
     expect(store.claimCallback("m-2", "complete")).toBe(true);
     store.releaseCallback("m-1", "complete");
     expect(store.claimCallback("m-1", "complete")).toBe(true);
+  });
+
+  it("lets an unfinished claim expire but never a posted one", () => {
+    let now = 1_000_000;
+    const store = open(() => now);
+    expect(store.claimCallback("m-1", "complete")).toBe(true);
+    expect(store.claimCallback("m-2", "complete")).toBe(true);
+    store.markCallbackPosted("m-2", "complete");
+    now += STALE_CALLBACK_CLAIM_MS - 1;
+    expect(store.claimCallback("m-1", "complete")).toBe(false);
+    now += 1;
+    expect(store.claimCallback("m-1", "complete")).toBe(true);
+    expect(store.claimCallback("m-1", "complete")).toBe(false);
+    now += STALE_CALLBACK_CLAIM_MS * 10;
+    expect(store.claimCallback("m-2", "complete")).toBe(false);
+  });
+
+  it("releases every unfinished claim at startup and keeps the posted ones", () => {
+    const store = open();
+    store.claimCallback("m-1", "complete");
+    store.claimCallback("m-2", "complete");
+    store.markCallbackPosted("m-2", "complete");
+    store.claimCallback("s-1", "thread_closed");
+    expect(store.releaseUnpostedCallbacks()).toBe(2);
+    expect(store.claimCallback("m-1", "complete")).toBe(true);
+    expect(store.claimCallback("s-1", "thread_closed")).toBe(true);
+    expect(store.claimCallback("m-2", "complete")).toBe(false);
+  });
+
+  it("adds the posted_at column to a database created before it existed", () => {
+    const dir = mkdtempSync(join(tmpdir(), "teams-bot-state-"));
+    dirs.push(dir);
+    const legacy = new DatabaseSync(join(dir, STATE_FILE_NAME));
+    legacy.exec(
+      `CREATE TABLE callback_deliveries (
+         message_id TEXT NOT NULL, kind TEXT NOT NULL, claimed_at INTEGER NOT NULL,
+         PRIMARY KEY (message_id, kind));
+       INSERT INTO callback_deliveries VALUES ('m-old', 'complete', 1);`
+    );
+    legacy.close();
+    const store = TeamsStateStore.open(dir);
+    stores.push(store);
+    expect(store.claimCallback("m-old", "complete")).toBe(true);
+    store.markCallbackPosted("m-old", "complete");
+    expect(store.releaseUnpostedCallbacks()).toBe(0);
   });
 
   it("persists to a file under the state directory and survives reopening", () => {

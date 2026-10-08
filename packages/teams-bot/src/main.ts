@@ -25,6 +25,8 @@ function main(): void {
   const log = createLogger("main", {}, config.logLevel);
   const store = TeamsStateStore.open(config.stateDir);
   store.pruneInboundActivities(INBOUND_CLAIM_TTL_MS);
+  const released = store.releaseUnpostedCallbacks();
+  if (released > 0) log.warn("teams_bot.unfinished_callbacks_released", { count: released });
 
   const tokens = createClientCredentialsTokenProvider({
     tenantId: config.tenantId,

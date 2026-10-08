@@ -373,6 +373,26 @@ describe("POST /callbacks/complete", () => {
     expect(h.connectorCalls().filter((call) => call.method === "PUT")).toHaveLength(2);
   });
 
+  it("delivers a retry whose earlier claim was left unfinished by a crashed delivery", async () => {
+    const h = harness({});
+    await h.start();
+    // What a process that died between claiming and posting leaves behind.
+    expect(h.store.claimCallback("message-1", "complete")).toBe(true);
+    const blocked = await h.callback("complete", completePayload());
+    expect(await blocked.json()).toEqual({ ok: true, outcome: "duplicate" });
+    expect(h.connectorCalls()).toEqual([WORKING_REPLY]);
+
+    // A restart releases unfinished claims; the control plane's redelivery then posts once.
+    expect(h.store.releaseUnpostedCallbacks()).toBe(1);
+    const retried = await h.callback("complete", completePayload());
+    expect(await retried.json()).toEqual({ ok: true, outcome: "delivered" });
+    expect(h.connectorCalls().filter((call) => call.text === FINAL_TEXT)).toHaveLength(1);
+    const again = await h.callback("complete", completePayload());
+    expect(await again.json()).toEqual({ ok: true, outcome: "duplicate" });
+    expect(h.store.releaseUnpostedCallbacks()).toBe(0);
+    expect(h.connectorCalls().filter((call) => call.text === FINAL_TEXT)).toHaveLength(1);
+  });
+
   it("still posts into the thread when the control plane's reads fail", async () => {
     const h = harness({
       controlPlane: {
