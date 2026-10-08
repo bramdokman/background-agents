@@ -1,10 +1,11 @@
-# The control-plane image builds from the repository root; only what it
-# needs enters the build context.
+# The control-plane and teams-bot images build from the repository root; only
+# what they need enters the build context.
 *
 !package.json
 !package-lock.json
 !packages/shared/
 !packages/control-plane/
+!packages/teams-bot/
 !packages/sandbox-runtime/src/sandbox_runtime/*.json
 !terraform/d1/migrations/
 packages/**/node_modules/

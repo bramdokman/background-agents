@@ -49,10 +49,10 @@
     "teams-bot": {
       "provider": "v8",
       "metrics": {
-        "statements": { "covered": 769, "total": 844 },
-        "branches": { "covered": 524, "total": 641 },
-        "functions": { "covered": 171, "total": 185 },
-        "lines": { "covered": 712, "total": 775 }
+        "statements": { "covered": 1050, "total": 1137 },
+        "branches": { "covered": 698, "total": 826 },
+        "functions": { "covered": 223, "total": 237 },
+        "lines": { "covered": 971, "total": 1042 }
       }
     },
     "linear-bot": {
