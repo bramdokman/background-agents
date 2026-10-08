@@ -1,8 +1,7 @@
-import { microsoft } from "better-auth/social-providers";
-import { SIGN_IN_PROVIDER_ISSUERS } from "@open-inspect/shared/sign-in-provider";
 import { z } from "zod";
 import type { AdmissionPolicy, MicrosoftAdmissionEvidence } from "../admission-policy";
 import type { ProviderProfile, ProviderTokens } from "../provider-profile";
+import { MicrosoftIdTokenVerifier } from "./microsoft-id-token";
 import { OAuthProviderError } from "./types";
 
 /**
@@ -83,16 +82,16 @@ export class MicrosoftSignInProfileResolver {
     private readonly config: MicrosoftSignInProfileResolverConfig,
     dependencies: MicrosoftSignInProfileResolverDependencies = {}
   ) {
-    // Better Auth's own verifier: signature against the tenant's JWKS,
-    // audience = client id, issuer = <authority>/<tenant>/v2.0, max age 1h.
+    // Our own verifier (microsoft-id-token.ts): signature against the
+    // tenant's JWKS, audience = client id, issuer = <authority>/<tenant>/v2.0,
+    // max age 1h. Better Auth's `microsoft().verifyIdToken` cannot import
+    // Microsoft's keys, which carry no `alg`.
     this.verifyIdToken =
       dependencies.verifyIdToken ??
-      ((token) =>
-        microsoft({
-          clientId: config.clientId,
-          tenantId: config.tenantId,
-          authority: SIGN_IN_PROVIDER_ISSUERS.microsoft,
-        }).verifyIdToken(token));
+      (() => {
+        const verifier = new MicrosoftIdTokenVerifier(config);
+        return async (token) => (await verifier.verify(token)) !== false;
+      })();
   }
 
   readonly getUserInfo = async (tokens: ProviderTokens): Promise<ProviderProfile> => {
