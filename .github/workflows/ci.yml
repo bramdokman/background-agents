@@ -23,6 +23,7 @@ on:
       - "packages/vercel-infra/**"
       - "packages/shared/**"
       - "packages/slack-bot/**"
+      - "packages/teams-bot/**"
       - "packages/web/**"
       - "scripts/**"
       - "terraform/d1/migrations/**"
@@ -60,6 +61,7 @@ on:
       - "packages/vercel-infra/**"
       - "packages/shared/**"
       - "packages/slack-bot/**"
+      - "packages/teams-bot/**"
       - "packages/web/**"
       - "scripts/**"
       - "terraform/d1/migrations/**"
@@ -367,3 +369,6 @@ jobs:
 
       - name: Run linear-bot tests
         run: npm test -w @open-inspect/linear-bot
+
+      - name: Run teams-bot tests
+        run: npm test -w @open-inspect/teams-bot

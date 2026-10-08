@@ -85,6 +85,7 @@ jobs:
             packages/github-bot \
             packages/linear-bot \
             packages/slack-bot \
+            packages/teams-bot \
             scripts/check-coverage.test.mjs \
             docs/AVAILABLE_MODELS.md \
             packages/docs/content/docs/models/choosing-a-model.mdx
@@ -223,7 +224,7 @@ jobs:
         run: node --test scripts/check-coverage.test.mjs
       - name: Enforce TypeScript coverage
         run: |
-          for package in shared slack-bot linear-bot github-bot; do
+          for package in shared slack-bot teams-bot linear-bot github-bot; do
             npm run test:coverage -w "@open-inspect/$package"
             node scripts/check-coverage.mjs "$package" "packages/$package/coverage/coverage-summary.json"
           done
@@ -235,6 +236,7 @@ jobs:
           path: |
             packages/shared/coverage/
             packages/slack-bot/coverage/
+            packages/teams-bot/coverage/
             packages/linear-bot/coverage/
             packages/github-bot/coverage/
           if-no-files-found: error
