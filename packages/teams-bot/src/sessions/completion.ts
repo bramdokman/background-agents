@@ -1,9 +1,10 @@
 /**
  * What happens when the control plane says a turn is over: the agent's
  * answer and artifacts are read back from the session, rendered as one
- * Teams message, and written over the "Working..." reply (or posted fresh
- * when that reply cannot be edited, or belongs to a later turn). The same
- * module posts the closure note when the control plane withdraws a thread.
+ * Teams message, and written over that turn's own "Working..." reply (or
+ * posted fresh when the reply is unknown or the connector refuses the edit).
+ * The same module posts the closure note when the control plane withdraws a
+ * thread.
  *
  * Exactly one final message per `(messageId)`: the delivery claim in SQLite
  * is taken before anything is posted and given back only when posting
@@ -272,15 +273,22 @@ export async function deliverCompletion(
 
     const { address, replyToId } = resolveAddress(deps.store, threadKey, input.context, thread);
     const port = deps.bot.replyPort(address, replyToId);
-    // The "Working..." reply belongs to this turn only while it is the thread's latest message.
+    // Each turn writes its answer into its own "Working..." reply. The thread's
+    // live progress stream is ended only when it was rendering this turn, so a
+    // turn that completes after a follow-up superseded it neither touches the
+    // new turn's placeholder nor tears down its stream.
     const isCurrentTurn = thread !== null && thread.lastMessageId === input.messageId;
-    const progressId = await deps.progress.finish(threadKey);
-    const target =
-      progressId ?? (isCurrentTurn ? (thread.progressActivityId ?? undefined) : undefined);
+    const ownPlaceholder = thread
+      ? (deps.store.getTurnPlaceholder(threadKey, input.messageId) ??
+        (isCurrentTurn ? thread.progressActivityId : null))
+      : null;
+    const progressId = await deps.progress.finish(threadKey, ownPlaceholder ?? null);
+    const target = progressId ?? ownPlaceholder ?? undefined;
     const finalId = await updateOrPost(port, target, text);
     if (isCurrentTurn) {
       deps.store.updateThreadSession(threadKey, { turnState: "idle", progressActivityId: null });
     }
+    if (thread) deps.store.deleteTurnPlaceholder(threadKey, input.messageId);
     deps.log.info("callback.complete", {
       ...logBase,
       outcome: "success",
@@ -297,17 +305,33 @@ export async function deliverCompletion(
   }
 }
 
-/** A tool call in flight: one more progress line, if the thread is still on this turn. */
+/**
+ * A tool call in flight: one more progress line, if the thread is still on
+ * this turn. A callback that names a message other than the thread's current
+ * one belongs to a superseded turn and is not drawn under the new placeholder.
+ */
 export function noteToolCall(deps: CompletionDeps, payload: ToolCallCallback, traceId: string) {
   const threadKey = payload.context.conversationId;
   const thread = threadFor(deps.store, threadKey, payload.sessionId);
-  if (!thread || thread.closed || thread.turnState !== "working") {
+  const superseded =
+    thread !== null &&
+    payload.messageId !== undefined &&
+    thread.lastMessageId !== null &&
+    payload.messageId !== thread.lastMessageId;
+  if (!thread || thread.closed || thread.turnState !== "working" || superseded) {
     deps.log.debug("callback.tool_call", {
       trace_id: traceId,
       thread_key: threadKey,
       session_id: payload.sessionId,
+      message_id: payload.messageId,
       outcome: "skipped",
-      skip_reason: !thread ? "no_thread_record" : thread.closed ? "closed" : "not_working",
+      skip_reason: !thread
+        ? "no_thread_record"
+        : thread.closed
+          ? "closed"
+          : superseded
+            ? "superseded_turn"
+            : "not_working",
     });
     return;
   }

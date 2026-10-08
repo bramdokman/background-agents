@@ -182,6 +182,7 @@ export function createActivityHandler(deps: ActivityHandlerDeps): ActivityHandle
       lastMessageId: prompt.data.messageId,
       turnState: "working",
     });
+    if (working.id) deps.store.putTurnPlaceholder(ctx.threadKey, prompt.data.messageId, working.id);
     deps.log.info("follow_up.sent", {
       trace_id: ctx.traceId,
       thread_key: ctx.threadKey,

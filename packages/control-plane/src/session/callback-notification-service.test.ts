@@ -1222,6 +1222,49 @@ describe("CallbackNotificationService", () => {
       expect(harness.slackPostScope.getChannelBinding).toHaveBeenCalledOnce();
     });
 
+    it("names the turn in a Teams tool-call callback and leaves Slack and Linear payloads as they were", async () => {
+      vi.mocked(harness.repository.getMessageCallbackContext).mockReturnValue({
+        callback_context: JSON.stringify(MSTEAMS_CALLBACK_CONTEXT),
+        source: "msteams",
+      });
+      vi.mocked(harness.teamsBot.fetch).mockResolvedValue(new Response("ok", { status: 200 }));
+
+      await harness.service.notifyToolCall("msg-7", {
+        type: "tool_call",
+        tool: "bash",
+        args: { command: "npm test" },
+        callId: "call-1",
+        status: "running",
+      });
+
+      expect(harness.teamsBot.fetch).toHaveBeenCalledTimes(1);
+      const [url, init] = harness.teamsBot.fetch.mock.calls[0]!;
+      expect(url).toBe("https://internal/callbacks/tool_call");
+      const { signature, ...payload } = JSON.parse(String(init?.body));
+      expect(payload).toEqual({
+        sessionId: "session-123",
+        messageId: "msg-7",
+        tool: "bash",
+        args: { command: "npm test" },
+        callId: "call-1",
+        status: "running",
+        timestamp: expect.any(Number),
+        context: MSTEAMS_CALLBACK_CONTEXT,
+      });
+      expect(await verifyCallbackSignature({ ...payload, signature }, "teams-secret")).toBe(true);
+      expect(harness.slackPostScope.getSession).not.toHaveBeenCalled();
+
+      harness = createTestHarness();
+      vi.mocked(harness.repository.getMessageCallbackContext).mockReturnValue({
+        callback_context: JSON.stringify({ channel: "C123" }),
+        source: "slack",
+      });
+      vi.mocked(harness.slackBot.fetch).mockResolvedValue(new Response("ok", { status: 200 }));
+      await harness.service.notifyToolCall("msg-8", { type: "tool_call", tool: "bash" });
+      const slackBody = JSON.parse(String(harness.slackBot.fetch.mock.calls[0]![1]?.body));
+      expect(slackBody).not.toHaveProperty("messageId");
+    });
+
     it("throttles denied tool events without repeated reads or closure callbacks", async () => {
       vi.useFakeTimers();
       try {

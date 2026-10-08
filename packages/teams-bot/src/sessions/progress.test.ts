@@ -124,6 +124,21 @@ describe("progress renderer", () => {
     ]);
   });
 
+  it("leaves a stream that belongs to another placeholder alone when asked to finish a specific one", async () => {
+    const { port, edits } = recordingPort();
+    const progress = createProgressRenderer(silent);
+    progress.note("thread", { port, progressActivityId: "turn-2" }, "Ran: b");
+    await waitFor(() => edits.length === 1, "turn-2 edit");
+    await expect(progress.finish("thread", "turn-1")).resolves.toBeUndefined();
+    progress.note("thread", { port, progressActivityId: "turn-2" }, "Ran: c");
+    await expect(progress.finish("thread", "turn-2")).resolves.toBe("turn-2");
+    expect(edits).toEqual([
+      { id: "turn-2", text: `${WORKING_TEXT}\n\n- Ran: b` },
+      { id: "turn-2", text: `${WORKING_TEXT}\n\n- Ran: b\n- Ran: c` },
+    ]);
+    await expect(progress.finish("thread", "turn-2")).resolves.toBeUndefined();
+  });
+
   it("clips long lines and keeps rendering when an edit and its fallback both fail", async () => {
     const posts: string[] = [];
     const port = {

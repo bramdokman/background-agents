@@ -731,6 +731,10 @@ export class CallbackNotificationService {
 
     const callbackData = {
       sessionId,
+      // The Teams bot keys its progress rendering by turn, so it gets the
+      // message; the Linear payload schema is strict and the Slack bot
+      // ignores the field.
+      ...(destination === "teams-bot" ? { messageId } : {}),
       tool,
       args: source === "linear" ? event.args : (event.args ?? EMPTY_TOOL_ARGS),
       callId,

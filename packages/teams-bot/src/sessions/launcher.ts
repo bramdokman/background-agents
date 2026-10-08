@@ -237,6 +237,9 @@ export async function launchSession(deps: LaunchDeps, input: LaunchInput): Promi
     lastMessageId: prompt.data.messageId,
     turnState: "working",
   });
+  if (working.id) {
+    deps.store.putTurnPlaceholder(input.threadKey, prompt.data.messageId, working.id);
+  }
   deps.store.putConversationReference(input.threadKey, toStoredConversationReference(activity));
   deps.log.info("launch.started", {
     ...logBase,

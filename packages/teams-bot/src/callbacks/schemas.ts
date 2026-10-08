@@ -50,9 +50,15 @@ export const completeCallbackSchema = z.looseObject({
   context: callbackContextSchema,
 });
 
-/** `POST /callbacks/tool_call`: throttled progress, one per tool call id at most. */
+/**
+ * `POST /callbacks/tool_call`: throttled progress, one per tool call id at
+ * most. `messageId` names the turn the call belongs to; the control plane
+ * sends it to this bot so a late call cannot be drawn under a later turn's
+ * placeholder.
+ */
 export const toolCallCallbackSchema = z.looseObject({
   ...signed,
+  messageId: z.string().min(1).optional(),
   tool: z.string(),
   args: z.record(z.string(), z.unknown()).optional(),
   callId: z.string(),

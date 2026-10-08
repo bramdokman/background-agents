@@ -36,9 +36,12 @@ export interface ProgressRenderer {
   /**
    * End the thread's progress stream and wait for its last edit. Resolves to
    * the activity that holds the progress text (it moves when an edit had to
-   * fall back to a post), or `undefined` when no progress was rendered.
+   * fall back to a post), or `undefined` when no progress was rendered. With
+   * `forActivityId`, only a stream started for that placeholder is ended; a
+   * stream that belongs to another turn is left alone and `undefined` is
+   * returned.
    */
-  finish(threadKey: string): Promise<string | undefined>;
+  finish(threadKey: string, forActivityId?: string | null): Promise<string | undefined>;
 }
 
 interface ChunkSource {
@@ -147,9 +150,10 @@ export function createProgressRenderer(log: Logger): ProgressRenderer {
       state ??= start(threadKey, target);
       state.source.push({ type: "text_delta", text: `\n${clipLine(line)}` });
     },
-    async finish(threadKey) {
+    async finish(threadKey, forActivityId) {
       const state = threads.get(threadKey);
       if (!state) return undefined;
+      if (forActivityId !== undefined && state.forActivityId !== forActivityId) return undefined;
       threads.delete(threadKey);
       state.source.push({ type: "done" });
       return state.settled;

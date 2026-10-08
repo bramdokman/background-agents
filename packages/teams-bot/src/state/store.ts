@@ -101,6 +101,13 @@ CREATE TABLE IF NOT EXISTS thread_sessions (
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_thread_sessions_session ON thread_sessions(session_id);
+CREATE TABLE IF NOT EXISTS turn_placeholders (
+  thread_key TEXT NOT NULL,
+  message_id TEXT NOT NULL,
+  progress_activity_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (thread_key, message_id)
+);
 CREATE TABLE IF NOT EXISTS conversation_references (
   thread_key TEXT PRIMARY KEY,
   reference_json TEXT NOT NULL,
@@ -184,6 +191,7 @@ export class TeamsStateStore {
   /** Insert the mapping, replacing any earlier session mapped to the same thread. */
   putThreadSession(session: NewThreadSession): ThreadSessionRecord {
     const now = this.now();
+    this.db.prepare("DELETE FROM turn_placeholders WHERE thread_key = ?").run(session.threadKey);
     this.db
       .prepare(
         `INSERT OR REPLACE INTO thread_sessions (
@@ -242,6 +250,37 @@ export class TeamsStateStore {
       )
       .run(this.now(), threadKey, sessionId);
     return result.changes > 0;
+  }
+
+  /**
+   * Remember which "Working..." reply a turn (control-plane message) owns, so
+   * a turn that completes after a follow-up superseded it still finds its own
+   * placeholder to write the answer into.
+   */
+  putTurnPlaceholder(threadKey: string, messageId: string, progressActivityId: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO turn_placeholders (thread_key, message_id, progress_activity_id, created_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(thread_key, message_id) DO UPDATE SET
+           progress_activity_id = excluded.progress_activity_id`
+      )
+      .run(threadKey, messageId, progressActivityId, this.now());
+  }
+
+  getTurnPlaceholder(threadKey: string, messageId: string): string | null {
+    const row = this.db
+      .prepare(
+        "SELECT progress_activity_id FROM turn_placeholders WHERE thread_key = ? AND message_id = ?"
+      )
+      .get(threadKey, messageId) as { progress_activity_id: string } | undefined;
+    return row?.progress_activity_id ?? null;
+  }
+
+  deleteTurnPlaceholder(threadKey: string, messageId: string): void {
+    this.db
+      .prepare("DELETE FROM turn_placeholders WHERE thread_key = ? AND message_id = ?")
+      .run(threadKey, messageId);
   }
 
   getConversationReference(threadKey: string): StoredConversationReference | null {

@@ -92,6 +92,21 @@ describe("TeamsStateStore", () => {
     expect(store.findThreadSessionsBySessionId("session-1")).toEqual([]);
   });
 
+  it("remembers each turn's placeholder until the turn completes or the thread is remapped", () => {
+    const store = open();
+    store.putThreadSession(newSession());
+    expect(store.getTurnPlaceholder(threadKey, "m-1")).toBeNull();
+    store.putTurnPlaceholder(threadKey, "m-1", "reply-1");
+    store.putTurnPlaceholder(threadKey, "m-2", "reply-2");
+    store.putTurnPlaceholder(threadKey, "m-2", "reply-2b");
+    expect(store.getTurnPlaceholder(threadKey, "m-1")).toBe("reply-1");
+    expect(store.getTurnPlaceholder(threadKey, "m-2")).toBe("reply-2b");
+    store.deleteTurnPlaceholder(threadKey, "m-1");
+    expect(store.getTurnPlaceholder(threadKey, "m-1")).toBeNull();
+    store.putThreadSession(newSession({ sessionId: "session-2" }));
+    expect(store.getTurnPlaceholder(threadKey, "m-2")).toBeNull();
+  });
+
   it("keeps conversation references and tolerates corrupt ones", () => {
     const store = open();
     expect(store.getConversationReference(threadKey)).toBeNull();

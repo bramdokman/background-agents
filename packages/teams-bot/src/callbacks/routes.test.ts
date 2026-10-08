@@ -190,19 +190,22 @@ function harness(options: {
     callbacks,
   });
 
-  /** Mention the bot in the channel so a session starts and "Working..." is posted. */
-  async function start(): Promise<void> {
+  /** Deliver one activity as the connector would and wait for the handler. */
+  async function post(activity = activityFixture()): Promise<void> {
     const response = await app.request("/api/messages", {
       method: "POST",
       headers: {
         "content-type": "application/json",
         authorization: `Bearer ${mintToken(key, {})}`,
       },
-      body: JSON.stringify(activityFixture()),
+      body: JSON.stringify(activity),
     });
     expect(response.status).toBe(200);
     await Promise.all(background.splice(0));
   }
+
+  /** Mention the bot in the channel so a session starts and "Working..." is posted. */
+  const start = () => post();
 
   /** Post a callback signed as the control plane signs it, unless `signature` overrides it. */
   async function callback(
@@ -241,6 +244,7 @@ function harness(options: {
     app,
     store,
     start,
+    post,
     callback,
     connectorCalls,
     controlPlaneCalls,
@@ -495,6 +499,108 @@ describe("POST /callbacks/tool_call", () => {
     expect(late.status).toBe(200);
     await new Promise((resolve) => setTimeout(resolve, 5));
     expect(h.connectorCalls()).toHaveLength(4);
+  });
+
+  it("keeps a superseded turn's progress and answer off the follow-up's placeholder", async () => {
+    let prompts = 0;
+    const turnEvents = (messageId: string, answer: string) => [
+      { id: `${messageId}-t`, type: "token", data: { content: answer }, messageId, createdAt: 1 },
+      {
+        id: `${messageId}-c`,
+        type: "execution_complete",
+        data: { success: true },
+        messageId,
+        createdAt: 2,
+      },
+    ];
+    const h = harness({
+      controlPlane: {
+        "POST /sessions/session-1/prompt": () =>
+          json({ messageId: `message-${++prompts}`, status: "queued" }),
+        "GET /sessions/session-1/events": (request) => {
+          const messageId = new URL(request.url).searchParams.get("message_id") ?? "";
+          const answer = messageId === "message-1" ? "First answer." : "Second answer.";
+          return json({ events: turnEvents(messageId, answer), hasMore: false });
+        },
+        "GET /sessions/session-1/artifacts": () => json({ artifacts: [] }),
+      },
+    });
+    await h.start();
+    const first = await h.callback("tool_call", {
+      ...toolCallPayload("c1", "npm test"),
+      messageId: "message-1",
+    });
+    expect(first.status).toBe(200);
+    await waitFor(() => h.connectorCalls().length === 2, "turn 1 progress edit");
+
+    // A follow-up while turn 1 is still running: message-2 owns reply-2.
+    await h.post(
+      activityFixture({
+        id: "1759900000002",
+        replyToId: ROOT_ID,
+        conversation: { id: THREAD_KEY, conversationType: "channel", tenantId: TENANT_ID },
+        text: "<at>Open-Inspect</at> also add tests",
+      })
+    );
+    expect(h.store.getThreadSession(THREAD_KEY)).toMatchObject({
+      lastMessageId: "message-2",
+      progressActivityId: "reply-2",
+      turnState: "working",
+    });
+    expect(h.connectorCalls()).toHaveLength(3);
+
+    // A late tool call for turn 1 is not drawn under reply-2.
+    await h.callback("tool_call", {
+      ...toolCallPayload("c2", "git status"),
+      messageId: "message-1",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(h.connectorCalls()).toHaveLength(3);
+
+    // Turn 1 completes: its answer lands in its own reply-1; reply-2 stays "Working...".
+    const complete1 = await h.callback("complete", completePayload({ messageId: "message-1" }));
+    expect(await complete1.json()).toEqual({ ok: true, outcome: "delivered" });
+    expect(h.connectorCalls().at(-1)).toMatchObject({
+      method: "PUT",
+      path: `${THREAD_ACTIVITIES}/reply-1`,
+    });
+    expect(h.connectorCalls().at(-1)?.text).toContain("First answer.");
+    expect(h.store.getThreadSession(THREAD_KEY)).toMatchObject({
+      lastMessageId: "message-2",
+      progressActivityId: "reply-2",
+      turnState: "working",
+    });
+
+    // Turn 2's progress and answer go to reply-2.
+    await h.callback("tool_call", {
+      ...toolCallPayload("c3", "npm run lint"),
+      messageId: "message-2",
+    });
+    await waitFor(() => h.connectorCalls().length === 5, "turn 2 progress edit");
+    expect(h.connectorCalls().at(-1)).toMatchObject({
+      method: "PUT",
+      path: `${THREAD_ACTIVITIES}/reply-2`,
+      text: `${WORKING_TEXT}\n\n- Ran: npm run lint`,
+    });
+    const complete2 = await h.callback("complete", completePayload({ messageId: "message-2" }));
+    expect(await complete2.json()).toEqual({ ok: true, outcome: "delivered" });
+    expect(h.connectorCalls().at(-1)).toMatchObject({
+      method: "PUT",
+      path: `${THREAD_ACTIVITIES}/reply-2`,
+    });
+    expect(h.connectorCalls().at(-1)?.text).toContain("Second answer.");
+    expect(h.connectorCalls().map((call) => [call.method, call.path.split("/").at(-1)])).toEqual([
+      ["POST", ROOT_ID],
+      ["PUT", "reply-1"],
+      ["POST", ROOT_ID],
+      ["PUT", "reply-1"],
+      ["PUT", "reply-2"],
+      ["PUT", "reply-2"],
+    ]);
+    expect(h.store.getThreadSession(THREAD_KEY)).toMatchObject({
+      turnState: "idle",
+      progressActivityId: null,
+    });
   });
 
   it("rejects an unsigned or foreign tool call before touching the thread", async () => {
