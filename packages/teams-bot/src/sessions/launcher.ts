@@ -225,6 +225,7 @@ export async function launchSession(deps: LaunchDeps, input: LaunchInput): Promi
   deps.store.putThreadSession({
     threadKey: input.threadKey,
     sessionId,
+    actor,
     teamId,
     repoFullName: repo.data.fullName,
     model: selection.selection.model,

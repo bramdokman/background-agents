@@ -301,3 +301,83 @@ describe("ControlPlaneClient", () => {
     await expectValidSig1(remote.requests[1]);
   });
 });
+
+describe("session reads for completions", () => {
+  it("follows the events cursor page by page as the actor", async () => {
+    const pages: Record<string, unknown> = {
+      first: {
+        events: [{ id: "e1", type: "token", data: { content: "a" }, messageId: "m", createdAt: 1 }],
+        cursor: "c2",
+        hasMore: true,
+      },
+      c2: {
+        events: [
+          {
+            id: "e2",
+            type: "execution_complete",
+            data: { success: true },
+            messageId: "m",
+            createdAt: 2,
+          },
+        ],
+        hasMore: false,
+      },
+    };
+    const remote = scriptedFetch({
+      "GET /sessions/session-1/events": (request) => {
+        const cursor = new URL(request.url).searchParams.get("cursor") ?? "first";
+        return json(pages[cursor]);
+      },
+    });
+    const client = new ControlPlaneClient({
+      baseUrl: BASE_URL,
+      secret: SECRET,
+      fetch: remote.fetch,
+    });
+    const result = await client.listEvents(actor, "session-1", "m", "trace-1");
+    expect(result).toEqual({
+      ok: true,
+      data: [
+        { id: "e1", type: "token", data: { content: "a" }, messageId: "m", createdAt: 1 },
+        {
+          id: "e2",
+          type: "execution_complete",
+          data: { success: true },
+          messageId: "m",
+          createdAt: 2,
+        },
+      ],
+    });
+    expect(remote.requests).toHaveLength(2);
+    const [first, second] = remote.requests;
+    expect(new URL(first.url).searchParams.get("message_id")).toBe("m");
+    expect(new URL(first.url).searchParams.get("limit")).toBe("200");
+    expect(new URL(second.url).searchParams.get("cursor")).toBe("c2");
+    expect(first.headers[ACTOR_HEADER.toLowerCase()]).toBe(actor);
+    await expectValidSig1(second);
+  });
+
+  it("classifies a refused events read and lists artifacts", async () => {
+    const remote = scriptedFetch({
+      "GET /sessions/session-1/events": () => json({ error: "Forbidden" }, 403),
+      "GET /sessions/session-1/artifacts": () =>
+        json({
+          artifacts: [{ id: "a", type: "pr", url: "https://pr", metadata: null, createdAt: 5 }],
+        }),
+    });
+    const client = new ControlPlaneClient({
+      baseUrl: BASE_URL,
+      secret: SECRET,
+      fetch: remote.fetch,
+    });
+    expect(await client.listEvents(actor, "session-1", "m")).toMatchObject({
+      ok: false,
+      reason: "forbidden",
+      status: 403,
+    });
+    expect(await client.listArtifacts(actor, "session-1")).toEqual({
+      ok: true,
+      data: [{ id: "a", type: "pr", url: "https://pr", metadata: null, createdAt: 5 }],
+    });
+  });
+});

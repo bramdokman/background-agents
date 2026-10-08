@@ -10,6 +10,7 @@ function newSession(overrides: Partial<Parameters<TeamsStateStore["putThreadSess
   return {
     threadKey,
     sessionId: "session-1",
+    actor: "microsoft:0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0",
     teamId: "team-platform",
     repoFullName: "ProvidenceIT/playground",
     model: "anthropic/claude-sonnet-4.5",
@@ -43,6 +44,7 @@ describe("TeamsStateStore", () => {
     expect(stored).toEqual({
       threadKey,
       sessionId: "session-1",
+      actor: "microsoft:0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0",
       teamId: "team-platform",
       repoFullName: "ProvidenceIT/playground",
       model: "anthropic/claude-sonnet-4.5",

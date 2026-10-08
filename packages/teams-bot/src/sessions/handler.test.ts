@@ -508,6 +508,7 @@ describe("POST /api/messages", () => {
     h.store.putThreadSession({
       threadKey: THREAD_KEY,
       sessionId: "session-1",
+      actor: `microsoft:${USER_OID}`,
       teamId: "team-platform",
       repoFullName: "ProvidenceIT/playground",
       model: DEFAULT_MODEL,

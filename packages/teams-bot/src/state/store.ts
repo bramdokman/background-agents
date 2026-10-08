@@ -22,6 +22,8 @@ export interface ThreadSessionRecord {
   /** Teams conversation id including the root message (`...;messageid=<root>`), or the chat id. */
   threadKey: string;
   sessionId: string;
+  /** The Teams user who started the session, as `microsoft:<oid>`; callbacks read the session as this actor. */
+  actor: string | null;
   teamId: string | null;
   repoFullName: string | null;
   model: string;
@@ -45,6 +47,7 @@ export type NewThreadSession = Pick<
   ThreadSessionRecord,
   | "threadKey"
   | "sessionId"
+  | "actor"
   | "teamId"
   | "repoFullName"
   | "model"
@@ -62,6 +65,7 @@ export type ThreadSessionPatch = Partial<
 interface ThreadSessionRow {
   thread_key: string;
   session_id: string;
+  actor: string | null;
   team_id: string | null;
   repo_full_name: string | null;
   model: string;
@@ -81,6 +85,7 @@ const SCHEMA = `
 CREATE TABLE IF NOT EXISTS thread_sessions (
   thread_key TEXT PRIMARY KEY,
   session_id TEXT NOT NULL,
+  actor TEXT,
   team_id TEXT,
   repo_full_name TEXT,
   model TEXT NOT NULL,
@@ -117,6 +122,7 @@ function toRecord(row: ThreadSessionRow): ThreadSessionRecord {
   return {
     threadKey: row.thread_key,
     sessionId: row.session_id,
+    actor: row.actor,
     teamId: row.team_id,
     repoFullName: row.repo_full_name,
     model: row.model,
@@ -181,14 +187,15 @@ export class TeamsStateStore {
     this.db
       .prepare(
         `INSERT OR REPLACE INTO thread_sessions (
-           thread_key, session_id, team_id, repo_full_name, model, reasoning_effort,
+           thread_key, session_id, actor, team_id, repo_full_name, model, reasoning_effort,
            service_url, channel_id, root_activity_id, progress_activity_id, last_message_id,
            turn_state, closed, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
       )
       .run(
         session.threadKey,
         session.sessionId,
+        session.actor,
         session.teamId,
         session.repoFullName,
         session.model,

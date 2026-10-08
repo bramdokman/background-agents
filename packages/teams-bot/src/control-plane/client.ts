@@ -24,11 +24,24 @@ import {
   type InstallationRepository,
 } from "@open-inspect/shared/types/repository-catalog";
 import { sessionMessageSchema, type SessionMessage } from "@open-inspect/shared/types/sessions";
+import {
+  listArtifactsResponseSchema,
+  type ArtifactResponse,
+} from "@open-inspect/shared/types/artifacts";
+import {
+  listEventsResponseSchema,
+  type EventResponse,
+} from "@open-inspect/shared/types/sandbox-events";
 import { z } from "zod";
 import { asError, type Logger } from "../logger";
 import type { FetchFn } from "../types";
 
 const OUTBOUND_REQUEST_TIMEOUT_MS = 20_000;
+
+/** The events route's server-side page limit. */
+const EVENTS_PAGE_LIMIT = 200;
+/** Pages of events one completion may read; a turn that produced more is rendered from these. */
+const EVENTS_MAX_PAGES = 25;
 
 /** The actor namespace the control plane enrols web sign-ins under; Teams surfaces the same oid. */
 export function microsoftActor(aadObjectId: string): string {
@@ -305,6 +318,56 @@ export class ControlPlaneClient {
         traceId,
       },
       (payload) => sessionMessagesPageSchema.parse(payload).messages
+    );
+  }
+
+  /** Every persisted event of one message, oldest page first, following the cursor. */
+  async listEvents(
+    actor: string,
+    sessionId: string,
+    messageId: string,
+    traceId?: string
+  ): Promise<ControlPlaneResult<EventResponse[]>> {
+    const events: EventResponse[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < EVENTS_MAX_PAGES; page++) {
+      const result = await this.request(
+        "control_plane.list_events",
+        {
+          method: "GET",
+          url: this.url(`/sessions/${encodeURIComponent(sessionId)}/events`, {
+            message_id: messageId,
+            limit: String(EVENTS_PAGE_LIMIT),
+            cursor,
+          }),
+          actor,
+          traceId,
+        },
+        (payload) => listEventsResponseSchema.parse(payload)
+      );
+      if (!result.ok) return result;
+      events.push(...result.data.events);
+      cursor = result.data.hasMore ? result.data.cursor : undefined;
+      if (!cursor) break;
+    }
+    return { ok: true, data: events };
+  }
+
+  /** The session's artifacts (pull requests, branches, media). */
+  listArtifacts(
+    actor: string,
+    sessionId: string,
+    traceId?: string
+  ): Promise<ControlPlaneResult<ArtifactResponse[]>> {
+    return this.request(
+      "control_plane.list_artifacts",
+      {
+        method: "GET",
+        url: this.url(`/sessions/${encodeURIComponent(sessionId)}/artifacts`),
+        actor,
+        traceId,
+      },
+      (payload) => listArtifactsResponseSchema.parse(payload).artifacts
     );
   }
 }
