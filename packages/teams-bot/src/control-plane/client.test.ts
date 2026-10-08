@@ -358,7 +358,7 @@ describe("session reads for completions", () => {
       secret: SECRET,
       fetch: remote.fetch,
     });
-    const result = await client.listEvents(actor, "session-1", "m", "trace-1");
+    const result = await client.listEvents({ actor }, "session-1", "m", "trace-1");
     expect(result).toEqual({
       ok: true,
       data: [
@@ -394,12 +394,12 @@ describe("session reads for completions", () => {
       secret: SECRET,
       fetch: remote.fetch,
     });
-    expect(await client.listEvents(actor, "session-1", "m")).toMatchObject({
+    expect(await client.listEvents({ actor }, "session-1", "m")).toMatchObject({
       ok: false,
       reason: "forbidden",
       status: 403,
     });
-    expect(await client.listArtifacts(actor, "session-1")).toEqual({
+    expect(await client.listArtifacts({ actor }, "session-1")).toEqual({
       ok: true,
       data: [{ id: "a", type: "pr", url: "https://pr", metadata: null, createdAt: 5 }],
     });

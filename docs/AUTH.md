@@ -484,11 +484,13 @@ The control plane carries what a Microsoft Teams bot needs; the bot itself is a 
   (`GET /repos?channel=msteams:<channelId>`, `GET /environments?channel=msteams:<channelId>`) under
   the acting user's actor assertion, exactly as the Slack bot does; the channel id keeps its own `:`
   and `@`, and only the Teams bot may name an `msteams` scope. To render a completion it reads
-  `GET /sessions/:id/events` and `GET /sessions/:id/artifacts` without an actor, scoped the same
-  way, and it may stop a session without one (`POST /sessions/:id/stop`), the grants the Linear bot
-  holds. Actorless Teams reads follow the Slack and Linear rules above: an unbound channel sees only
-  workspace-owned, non-private sessions, and the Slack publication gate (`purpose=slack-post`) is
-  not available to it.
+  `GET /sessions/:id/events` and `GET /sessions/:id/artifacts` as the Teams user who started the
+  session (the actor it stored with the thread); when that record is gone (a recreated state volume)
+  it falls back to reading without an actor, scoped the same way (`channel=msteams:<channelId>`),
+  the grant the Linear bot holds, and it may stop a session without an actor
+  (`POST /sessions/:id/stop`). Actorless Teams reads follow the Slack and Linear rules above: an
+  unbound channel sees only workspace-owned, non-private sessions, and the Slack publication gate
+  (`purpose=slack-post`) is not available to it.
 - **Callbacks.** Prompts from the bot carry `source: "msteams"` and an `msteams` callback context
   (conversation, service URL, reply activity, channel). Completion and tool-call callbacks go to the
   Teams bot, signed with its key, under the same publication gate Slack has, read against the

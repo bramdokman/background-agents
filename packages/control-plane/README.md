@@ -486,8 +486,10 @@ does not cache channel-catalog responses or fall back to workspace/team data on 
 The Microsoft Teams bot scopes the same reads with `channel=msteams:<channelId>`, where the channel
 id is the Teams thread id (`19:<id>@thread.tacv2`, with its own `:` and `@`); only the `teams-bot`
 service may name an `msteams` scope, and a malformed one is refused with
-`msteams_channel_scope_denied`. Without an actor it may read `GET /sessions/:id/events` and
-`GET /sessions/:id/artifacts` and call `POST /sessions/:id/stop`, as the Linear bot may.
+`msteams_channel_scope_denied`. It reads a turn back for a completion as the Teams user who started
+the session; when its own record of the thread is gone it reads `GET /sessions/:id/events` and
+`GET /sessions/:id/artifacts` without an actor under that channel scope, and it may call
+`POST /sessions/:id/stop` without one, as the Linear bot may.
 
 Bulk archiving uses `POST /sessions/batch-archive` with an explicit selection:
 

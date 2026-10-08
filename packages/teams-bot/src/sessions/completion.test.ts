@@ -177,7 +177,7 @@ describe("fetchAgentResponse", () => {
       secret: "placeholder-service-secret",
       fetch: remote.fetch,
     });
-    const result = await fetchAgentResponse(client, actor, "session-1", "message-1", "trace");
+    const result = await fetchAgentResponse(client, { actor }, "session-1", "message-1", "trace");
     expect(result).toEqual({
       textContent: "I added the badge.",
       toolCalls: [{ tool: "Bash", summary: "Ran: npm test" }],
@@ -205,7 +205,9 @@ describe("fetchAgentResponse", () => {
       secret: "placeholder-service-secret",
       fetch: scriptedFetch({ "GET *": () => json({ error: "Forbidden" }, 403) }).fetch,
     });
-    await expect(fetchAgentResponse(denied, actor, "session-1", "message-1")).resolves.toBeNull();
+    await expect(
+      fetchAgentResponse(denied, { actor }, "session-1", "message-1")
+    ).resolves.toBeNull();
 
     const partial = new ControlPlaneClient({
       baseUrl: "http://10.43.250.21:8787",
@@ -216,7 +218,27 @@ describe("fetchAgentResponse", () => {
       }).fetch,
     });
     await expect(
-      fetchAgentResponse(partial, actor, "session-1", "message-1")
+      fetchAgentResponse(partial, { actor }, "session-1", "message-1")
     ).resolves.toMatchObject({ textContent: "I added the badge.", artifacts: [] });
+  });
+
+  it("reads without an actor, scoped to the channel, when asked to", async () => {
+    const remote = scriptedFetch({
+      "GET /sessions/session-1/events": () => json({ events, hasMore: false }),
+      "GET /sessions/session-1/artifacts": () => json({ artifacts: [] }),
+    });
+    const client = new ControlPlaneClient({
+      baseUrl: "http://10.43.250.21:8787",
+      secret: "placeholder-service-secret",
+      fetch: remote.fetch,
+    });
+    const scope = { channel: "msteams:19:chan@thread.tacv2" };
+    await expect(
+      fetchAgentResponse(client, scope, "session-1", "message-1")
+    ).resolves.toMatchObject({ textContent: "I added the badge." });
+    for (const request of remote.requests) {
+      expect(request.headers["x-openinspect-actor"]).toBeUndefined();
+      expect(new URL(request.url).searchParams.get("channel")).toBe("msteams:19:chan@thread.tacv2");
+    }
   });
 });

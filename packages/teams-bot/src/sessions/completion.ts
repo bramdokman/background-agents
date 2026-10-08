@@ -13,7 +13,8 @@
  * that died mid-delivery is released at startup and expires on its own, so a
  * later redelivery still posts the message. Reads happen as the user who
  * started the session; when they fail, the final message still goes out with
- * the session link, since a retry would not change the answer.
+ * the session link, since a retry would not change the answer; a thread
+ * whose record is gone is read without an actor, scoped to its channel.
  */
 
 import {
@@ -29,7 +30,11 @@ import {
   type BotFrameworkClient,
 } from "../bot-framework/client";
 import type { CallbackContext, ThreadCoordinates, ToolCallCallback } from "../callbacks/schemas";
-import type { ControlPlaneClient } from "../control-plane/client";
+import {
+  msteamsChannelScope,
+  type ControlPlaneClient,
+  type SessionReadScope,
+} from "../control-plane/client";
 import { asError, type Logger } from "../logger";
 import type { TeamsStateStore, ThreadSessionRecord } from "../state/store";
 import { updateOrPost } from "../teams/reply-sink";
@@ -106,21 +111,21 @@ function eventRange(events: readonly EventResponse[]): { start: number; end: num
 }
 
 /**
- * The agent's response to one message, read as `actor`. Mirrors the shared
+ * The agent's response to one message, read in `scope`. Mirrors the shared
  * extractor's aggregation (events, then the session's artifacts in the
  * message's time range) through this bot's signed client; `null` when the
  * events could not be read.
  */
 export async function fetchAgentResponse(
   controlPlane: ControlPlaneClient,
-  actor: string,
+  scope: SessionReadScope,
   sessionId: string,
   messageId: string,
   traceId?: string
 ): Promise<AgentResponse | null> {
-  const events = await controlPlane.listEvents(actor, sessionId, messageId, traceId);
+  const events = await controlPlane.listEvents(scope, sessionId, messageId, traceId);
   if (!events.ok) return null;
-  const artifacts = await controlPlane.listArtifacts(actor, sessionId, traceId);
+  const artifacts = await controlPlane.listArtifacts(scope, sessionId, traceId);
   const range = eventRange(events.data);
   const infos: ArtifactInfo[] = artifacts.ok
     ? artifacts.data
@@ -244,10 +249,18 @@ export async function deliverCompletion(
     return "duplicate";
   }
   try {
-    const response = thread?.actor
+    // Read as the user who started the session; when the thread record is
+    // gone (a recreated state volume), fall back to the actorless read the
+    // control plane grants this bot for the channel the thread lives in.
+    const scope: SessionReadScope | null = thread?.actor
+      ? { actor: thread.actor }
+      : input.context.channelId
+        ? { channel: msteamsChannelScope(input.context.channelId) }
+        : null;
+    const response = scope
       ? await fetchAgentResponse(
           deps.controlPlane,
-          thread.actor,
+          scope,
           input.sessionId,
           input.messageId,
           input.traceId
@@ -257,7 +270,8 @@ export async function deliverCompletion(
       deps.log.warn("callback.complete", {
         ...logBase,
         outcome: "degraded",
-        reason: thread?.actor ? "session_read_failed" : "no_thread_record",
+        reason: scope ? "session_read_failed" : "no_thread_record",
+        read_scope: scope?.actor ? "actor" : scope?.channel ? "channel" : undefined,
       });
     }
     const text = formatCompletionText({

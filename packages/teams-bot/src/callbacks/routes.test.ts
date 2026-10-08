@@ -434,23 +434,69 @@ describe("POST /callbacks/complete", () => {
     });
   });
 
-  it("posts a fresh reply from the callback's coordinates when the thread is unknown", async () => {
-    const h = harness({});
+  it("reads an unknown thread's turn without an actor, scoped to its channel, and posts fresh", async () => {
+    const h = harness({
+      controlPlane: {
+        "GET /sessions/session-9/events": () =>
+          json({
+            events: [
+              {
+                id: "x1",
+                type: "token",
+                data: { content: "Recovered answer." },
+                messageId: "message-9",
+                createdAt: 1,
+              },
+              {
+                id: "x2",
+                type: "execution_complete",
+                data: { success: true },
+                messageId: "message-9",
+                createdAt: 2,
+              },
+            ],
+            hasMore: false,
+          }),
+        "GET /sessions/session-9/artifacts": () => json({ artifacts: [] }),
+      },
+    });
     const other = { ...context, conversationId: `${CHANNEL_ID};messageid=42`, replyToId: "42" };
     const response = await h.callback(
       "complete",
       completePayload({ sessionId: "session-9", messageId: "message-9", context: other })
     );
     expect(await response.json()).toEqual({ ok: true, outcome: "delivered" });
-    expect(h.controlPlaneCalls()).toEqual([]);
+    expect(h.controlPlaneCalls()).toEqual([
+      "GET /sessions/session-9/events",
+      "GET /sessions/session-9/artifacts",
+    ]);
+    for (const request of h.controlPlaneRemote.requests) {
+      expect(request.headers[ACTOR_HEADER.toLowerCase()]).toBeUndefined();
+      expect(new URL(request.url).searchParams.get("channel")).toBe(`msteams:${CHANNEL_ID}`);
+    }
     expect(h.connectorCalls()).toEqual([
       {
         method: "POST",
         path: `/emea/v3/conversations/${encodeURIComponent(other.conversationId)}/activities/42`,
-        text: `${AGENT_COMPLETED_MESSAGE}\n\nDone | ${DEFAULT_MODEL} | ProvidenceIT/playground\n\n[Open the session](${WEB_APP_URL}/session/session-9)`,
+        text: `Recovered answer.\n\nDone | ${DEFAULT_MODEL} | ProvidenceIT/playground\n\n[Open the session](${WEB_APP_URL}/session/session-9)`,
         replyToId: "42",
         from: undefined,
       },
+    ]);
+  });
+
+  it("posts the link-only message when an unknown thread's context names no channel", async () => {
+    const h = harness({});
+    const { channelId: _channelId, ...withoutChannel } = context;
+    const other = { ...withoutChannel, conversationId: "a:1chat", replyToId: "42" };
+    const response = await h.callback(
+      "complete",
+      completePayload({ sessionId: "session-9", messageId: "message-9", context: other })
+    );
+    expect(await response.json()).toEqual({ ok: true, outcome: "delivered" });
+    expect(h.controlPlaneCalls()).toEqual([]);
+    expect(h.connectorCalls().map((call) => call.text)).toEqual([
+      `${AGENT_COMPLETED_MESSAGE}\n\nDone | ${DEFAULT_MODEL} | ProvidenceIT/playground\n\n[Open the session](${WEB_APP_URL}/session/session-9)`,
     ]);
   });
 

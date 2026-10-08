@@ -93,6 +93,15 @@ export interface SendPromptInput {
   callbackContext: MsTeamsCallbackContext;
 }
 
+/**
+ * Who a session read is made as. `{ actor }` reads as the Teams user who
+ * started the session; `{ channel }` reads without an actor, scoped to the
+ * channel the thread lives in (`msteams:<channelId>`), the grant the control
+ * plane gives this bot for completions whose thread record is gone.
+ */
+export type SessionReadScope =
+  { actor: string; channel?: undefined } | { actor?: undefined; channel: string };
+
 export interface ControlPlaneClientOptions {
   baseUrl: string;
   secret: string;
@@ -344,7 +353,7 @@ export class ControlPlaneClient {
 
   /** Every persisted event of one message, oldest page first, following the cursor. */
   async listEvents(
-    actor: string,
+    scope: SessionReadScope,
     sessionId: string,
     messageId: string,
     traceId?: string
@@ -360,8 +369,9 @@ export class ControlPlaneClient {
             message_id: messageId,
             limit: String(EVENTS_PAGE_LIMIT),
             cursor,
+            channel: scope.channel,
           }),
-          actor,
+          actor: scope.actor,
           traceId,
         },
         (payload) => listEventsResponseSchema.parse(payload)
@@ -376,7 +386,7 @@ export class ControlPlaneClient {
 
   /** The session's artifacts (pull requests, branches, media). */
   listArtifacts(
-    actor: string,
+    scope: SessionReadScope,
     sessionId: string,
     traceId?: string
   ): Promise<ControlPlaneResult<ArtifactResponse[]>> {
@@ -384,8 +394,10 @@ export class ControlPlaneClient {
       "control_plane.list_artifacts",
       {
         method: "GET",
-        url: this.url(`/sessions/${encodeURIComponent(sessionId)}/artifacts`),
-        actor,
+        url: this.url(`/sessions/${encodeURIComponent(sessionId)}/artifacts`, {
+          channel: scope.channel,
+        }),
+        actor: scope.actor,
         traceId,
       },
       (payload) => listArtifactsResponseSchema.parse(payload).artifacts
