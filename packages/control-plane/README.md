@@ -483,6 +483,12 @@ repository grants; a bot-supplied `teamId` cannot override that scope. Unbound c
 include only workspace-owned environments, even for multi-team users and administrators. The bot
 does not cache channel-catalog responses or fall back to workspace/team data on failed scoped reads.
 
+The Microsoft Teams bot scopes the same reads with `channel=msteams:<channelId>`, where the channel
+id is the Teams thread id (`19:<id>@thread.tacv2`, with its own `:` and `@`); only the `teams-bot`
+service may name an `msteams` scope, and a malformed one is refused with
+`msteams_channel_scope_denied`. Without an actor it may read `GET /sessions/:id/events` and
+`GET /sessions/:id/artifacts` and call `POST /sessions/:id/stop`, as the Linear bot may.
+
 Bulk archiving uses `POST /sessions/batch-archive` with an explicit selection:
 
 ```json

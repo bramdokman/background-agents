@@ -480,6 +480,15 @@ The control plane carries what a Microsoft Teams bot needs; the bot itself is a 
   permission ceiling matches the Linear bot's: repositories and environments (read, use), sessions
   (create, read, collaborate, lifecycle), integrations and skills (read), and no sandbox access.
   Sessions it starts carry `spawnSource: "teams-bot"`.
+- **Channel scopes and actorless reads.** The bot scopes catalog reads with the channel it acts in
+  (`GET /repos?channel=msteams:<channelId>`, `GET /environments?channel=msteams:<channelId>`) under
+  the acting user's actor assertion, exactly as the Slack bot does; the channel id keeps its own `:`
+  and `@`, and only the Teams bot may name an `msteams` scope. To render a completion it reads
+  `GET /sessions/:id/events` and `GET /sessions/:id/artifacts` without an actor, scoped the same
+  way, and it may stop a session without one (`POST /sessions/:id/stop`), the grants the Linear bot
+  holds. Actorless Teams reads follow the Slack and Linear rules above: an unbound channel sees only
+  workspace-owned, non-private sessions, and the Slack publication gate (`purpose=slack-post`) is
+  not available to it.
 - **Callbacks.** Prompts from the bot carry `source: "msteams"` and an `msteams` callback context
   (conversation, service URL, reply activity, channel). Completion and tool-call callbacks go to the
   Teams bot, signed with its key, and bypass the Slack publication gate. On the Node host the bot is

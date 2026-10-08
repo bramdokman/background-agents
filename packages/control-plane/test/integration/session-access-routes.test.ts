@@ -23,6 +23,13 @@ const MEMBER = "22222222222222222222222222222222";
 const CREATOR = "33333333333333333333333333333333";
 const SLACK_WRITES = ["prompt", "attachments"] as const;
 const SCOPE_REFUSAL = { error: "Slack channel scope denied", code: "slack_channel_scope_denied" };
+const TEAMS_CHANNEL_ID = "19:f78857599fec4951a2c1116a3f1ade3e@thread.tacv2";
+/** Each binding provider with the bot that may read through it and a literal external id. */
+const CHANNEL_SCOPES = [
+  { provider: "slack", service: "slack-bot", externalId: "C1" },
+  { provider: "linear", service: "linear-bot", externalId: "L1" },
+  { provider: "msteams", service: "teams-bot", externalId: TEAMS_CHANNEL_ID },
+] as const;
 
 async function fetchMode(
   path: string,
@@ -31,7 +38,7 @@ async function fetchMode(
     method?: string;
     as?: { userId: string; role: "owner" | "administrator" | "member" | "viewer" };
     body?: string;
-    service?: "github-bot" | "linear-bot" | "slack-bot";
+    service?: "github-bot" | "linear-bot" | "slack-bot" | "teams-bot";
     actor?: string;
   } = {}
 ) {
@@ -234,22 +241,74 @@ describe("HTTP session access by enforcement mode", () => {
     }
   );
 
-  describe.each(["slack", "linear"] as const)("unbound %s reads", (provider) => {
+  it.each(["off", "shadow", "on"] as const)(
+    "retains Teams channel-scoped event semantics in %s mode without Slack publication authority",
+    async (mode) => {
+      const { sessionName, team } = await session("team");
+      const other = await otherTeam();
+      const bindings = new TeamChannelBindingStore(env.DB);
+      const bindingActor = { actorUserId: OWNER, requestId: "msteams-read-binding" };
+      await bindings.put(
+        { provider: "msteams", externalId: TEAMS_CHANNEL_ID, teamId: other.id, kind: "source" },
+        bindingActor
+      );
+      const path = `/sessions/${sessionName}/events?channel=${encodeURIComponent(
+        `msteams:${TEAMS_CHANNEL_ID}`
+      )}`;
+      const runtime = vi.spyOn(env.SESSION, "get");
+      expect((await fetchMode(path, mode, { service: "teams-bot" })).status).toBe(
+        mode === "on" ? 404 : 200
+      );
+      if (mode === "on") expect(runtime).not.toHaveBeenCalled();
+      runtime.mockRestore();
+      await bindings.remove(other.id, "msteams", TEAMS_CHANNEL_ID, bindingActor);
+      await bindings.put(
+        { provider: "msteams", externalId: TEAMS_CHANNEL_ID, teamId: team.id, kind: "source" },
+        bindingActor
+      );
+      expect((await fetchMode(path, mode, { service: "teams-bot" })).status).toBe(200);
+      expect(
+        (await fetchMode(`${path}&purpose=slack-post`, mode, { service: "teams-bot" })).status
+      ).toBe(404);
+      // The Teams channel id is one scope whether or not the bot percent-encodes it.
+      expect(
+        (
+          await fetchMode(
+            `/sessions/${sessionName}/events?channel=msteams:${TEAMS_CHANNEL_ID}`,
+            mode,
+            {
+              service: "teams-bot",
+            }
+          )
+        ).status
+      ).toBe(200);
+      for (const service of ["slack-bot", "linear-bot"] as const) {
+        expect((await fetchMode(path, mode, { service })).status).toBe(404);
+      }
+      await env.DB.prepare("UPDATE sessions SET visibility = 'private' WHERE id = ?")
+        .bind(sessionName)
+        .run();
+      expect((await fetchMode(path, mode, { service: "teams-bot" })).status).toBe(404);
+    }
+  );
+
+  describe.each(CHANNEL_SCOPES)("unbound $provider reads", ({ provider, service, externalId }) => {
     it.each(["off", "shadow", "on"])(
       "revokes team-owned reads in %s mode without hiding workspace sessions",
       async (mode) => {
         const { sessionName, team } = await session("team");
         const bindings = new TeamChannelBindingStore(env.DB);
         const bindingActor = { actorUserId: OWNER, requestId: `${provider}-unbind` };
-        const externalId = provider === "slack" ? "C1" : "L1";
         await bindings.put({ provider, externalId, teamId: team.id, kind: "source" }, bindingActor);
         const purposes = provider === "slack" ? ["", "&purpose=slack-post"] : [""];
         const resources = ["events", "artifacts"] as const;
         const read = (resource: (typeof resources)[number], purpose: string) =>
           fetchMode(
-            `/sessions/${sessionName}/${resource}?channel=${provider}:${externalId}${purpose}`,
+            `/sessions/${sessionName}/${resource}?channel=${encodeURIComponent(
+              `${provider}:${externalId}`
+            )}${purpose}`,
             mode,
-            { service: `${provider}-bot` }
+            { service }
           );
         for (const purpose of purposes) {
           for (const resource of resources) {
@@ -284,10 +343,9 @@ describe("HTTP session access by enforcement mode", () => {
         await env.DB.prepare("UPDATE sessions SET visibility = 'workspace' WHERE id = ?")
           .bind(sessionName)
           .run();
-        expect(
-          (await fetchMode(`/sessions/${sessionName}/events`, mode, { service: `${provider}-bot` }))
-            .status
-        ).toBe(200);
+        expect((await fetchMode(`/sessions/${sessionName}/events`, mode, { service })).status).toBe(
+          200
+        );
 
         await env.DB.prepare("UPDATE sessions SET owner_team_id = NULL WHERE id = ?")
           .bind(sessionName)
@@ -324,6 +382,27 @@ describe("HTTP session access by enforcement mode", () => {
       expect(runtime).not.toHaveBeenCalled();
     }
   );
+
+  it.each([
+    "msteams:",
+    "msteams:C1",
+    "msteams:19:f78857599fec4951a2c1116a3f1ade3e",
+    `msteams:${TEAMS_CHANNEL_ID}:extra`,
+    `slack:${TEAMS_CHANNEL_ID}`,
+    `linear:${TEAMS_CHANNEL_ID}`,
+    `msteams:${TEAMS_CHANNEL_ID}&channel=msteams:19:other@thread.tacv2`,
+  ])("fails closed for invalid Teams event scope %s", async (channel) => {
+    const { sessionName } = await session("team");
+    const runtime = vi.spyOn(env.SESSION, "get");
+    expect(
+      (
+        await fetchMode(`/sessions/${sessionName}/events?channel=${channel}`, "on", {
+          service: "teams-bot",
+        })
+      ).status
+    ).toBe(404);
+    expect(runtime).not.toHaveBeenCalled();
+  });
 
   it("keeps a participant's concealed prompt separate from trusted channel publication access", async () => {
     const { sessionName, team } = await session("team");

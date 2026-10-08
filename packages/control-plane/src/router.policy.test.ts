@@ -328,8 +328,17 @@ describe("route policy table", () => {
     ["GET", "/automations/auto-1/invocations", [{ service: "slack-bot" }]],
     ["GET", "/automations/auto-1/runs/run-1", [{ service: "slack-bot" }]],
     ["GET", "/integration-settings/slack/channels", [{ service: "slack-bot" }]],
-    ["GET", "/sessions/session-1/events", [{ service: "slack-bot" }, { service: "linear-bot" }]],
-    ["GET", "/sessions/session-1/artifacts", [{ service: "slack-bot" }, { service: "linear-bot" }]],
+    [
+      "GET",
+      "/sessions/session-1/events",
+      [{ service: "slack-bot" }, { service: "linear-bot" }, { service: "teams-bot" }],
+    ],
+    [
+      "GET",
+      "/sessions/session-1/artifacts",
+      [{ service: "slack-bot" }, { service: "linear-bot" }, { service: "teams-bot" }],
+    ],
+    ["POST", "/sessions/session-1/stop", [{ service: "linear-bot" }, { service: "teams-bot" }]],
   ])("declares the exact actorless grants for %s %s", (method, path, expected) => {
     const authorization = routeFor(method, path)?.authorization;
     expect(["active-user", "active-global"]).toContain(authorization?.kind);
@@ -453,7 +462,10 @@ describe("route policy table", () => {
       allOf: [{ kind: "session", action: "read" }],
     });
     expect(routeFor("POST", "/sessions/session-1/stop")?.authorization).toMatchObject({
-      service: { kind: "actor", actorlessGrants: [{ service: "linear-bot" }] },
+      service: {
+        kind: "actor",
+        actorlessGrants: [{ service: "linear-bot" }, { service: "teams-bot" }],
+      },
     });
     expect(routeFor("GET", "/sessions/session-1/media/artifact-1")?.authorization).toMatchObject({
       service: { kind: "actor", actorlessGrants: [{ service: "slack-bot" }] },
