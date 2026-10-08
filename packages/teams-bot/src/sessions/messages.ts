@@ -51,6 +51,9 @@ export const DEFAULT_FORBIDDEN_MESSAGE = "You are not allowed to do that.";
 
 export const DEFAULT_QUOTA_MESSAGE = "Your usage quota is exhausted for now.";
 
+export const DEFAULT_RATE_LIMITED_MESSAGE =
+  "The session is busy right now. Wait for the current turn to finish, then try again.";
+
 export const AGENT_COMPLETED_MESSAGE = "_Agent completed._";
 
 export const CREATED_HEADING = "**Created:**";

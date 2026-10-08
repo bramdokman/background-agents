@@ -155,6 +155,14 @@ describe("ControlPlaneClient", () => {
           },
           429
         ),
+      "POST /sessions/busy/prompt": () =>
+        json(
+          {
+            error: "Prompt queue is full (5 pending). Wait for the current turn to finish.",
+            code: "PROMPT_QUEUE_FULL",
+          },
+          429
+        ),
       "POST /sessions/denied/prompt": () =>
         json({ error: "you are not a member of this channel's team", code: "not_member" }, 403),
       "POST /sessions/gone/prompt": () => json({ error: "Session not found" }, 404),
@@ -189,6 +197,15 @@ describe("ControlPlaneClient", () => {
       status: 429,
       code: "USAGE_QUOTA_EXCEEDED",
       message: "Daily turn quota reached",
+    });
+    await expect(
+      client.sendPrompt(actor, "busy", { content: "x", callbackContext: context })
+    ).resolves.toEqual({
+      ok: false,
+      reason: "rate_limited",
+      status: 429,
+      code: "PROMPT_QUEUE_FULL",
+      message: "Prompt queue is full (5 pending). Wait for the current turn to finish.",
     });
     await expect(
       client.sendPrompt(actor, "denied", { content: "x", callbackContext: context })

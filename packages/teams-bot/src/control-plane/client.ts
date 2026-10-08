@@ -53,9 +53,13 @@ export function msteamsChannelScope(channelId: string): string {
   return `msteams:${channelId}`;
 }
 
-/** Why a control-plane call did not succeed, from the response the bot renders. */
+/**
+ * Why a control-plane call did not succeed, from the response the bot
+ * renders. `rate_limited` is any 429 other than a usage quota (the prompt
+ * queue being full, for one); the control plane explains it in `error`.
+ */
 type ControlPlaneFailureReason =
-  "not_enrolled" | "quota" | "forbidden" | "not_found" | "invalid" | "transient";
+  "not_enrolled" | "quota" | "rate_limited" | "forbidden" | "not_found" | "invalid" | "transient";
 
 export interface ControlPlaneFailure {
   ok: false;
@@ -110,13 +114,15 @@ async function classifyFailure(response: Response): Promise<ControlPlaneFailure>
       ? "not_enrolled"
       : status === 429 && code === "USAGE_QUOTA_EXCEEDED"
         ? "quota"
-        : status === 403
-          ? "forbidden"
-          : status === 404
-            ? "not_found"
-            : status === 400 || status === 409 || status === 422
-              ? "invalid"
-              : "transient";
+        : status === 429
+          ? "rate_limited"
+          : status === 403
+            ? "forbidden"
+            : status === 404
+              ? "not_found"
+              : status === 400 || status === 409 || status === 422
+                ? "invalid"
+                : "transient";
   return { ok: false, reason, status, ...(code ? { code } : {}), ...(message ? { message } : {}) };
 }
 

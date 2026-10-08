@@ -501,6 +501,35 @@ describe("POST /api/messages", () => {
     ]);
   });
 
+  it("shows the control plane's reason when a follow-up is rate limited", async () => {
+    const h = harness({
+      [`GET /channel-bindings/msteams/${CHANNEL_ID}`]: boundChannel,
+      "POST /sessions": sessionCreated,
+      "POST /sessions/session-1/prompt": (request) =>
+        (request.body as { content: string }).content === "add a README badge"
+          ? promptQueued(request)
+          : json(
+              {
+                error: "Prompt queue is full (5 pending). Wait for the current turn to finish.",
+                code: "PROMPT_QUEUE_FULL",
+              },
+              429
+            ),
+    });
+    await h.post(activityFixture());
+    await h.post(
+      activityFixture({ id: "2", replyToId: ROOT_ID, text: "<at>Open-Inspect</at> and more" })
+    );
+    expect(h.replies().map((reply) => reply.text)).toEqual([
+      WORKING_TEXT,
+      "Prompt queue is full (5 pending). Wait for the current turn to finish.",
+    ]);
+    expect(h.store.getThreadSession(THREAD_KEY)).toMatchObject({
+      lastMessageId: "message-1",
+      closed: false,
+    });
+  });
+
   it("applies inline model flags and rejects unknown ones", async () => {
     const h = harness({
       [`GET /channel-bindings/msteams/${CHANNEL_ID}`]: boundChannel,

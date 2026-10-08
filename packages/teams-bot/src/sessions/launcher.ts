@@ -28,6 +28,7 @@ import {
   chooseRepositoryMessage,
   DEFAULT_FORBIDDEN_MESSAGE,
   DEFAULT_QUOTA_MESSAGE,
+  DEFAULT_RATE_LIMITED_MESSAGE,
   NOT_A_CHANNEL_MESSAGE,
   PROMPT_FAILED_MESSAGE,
   SESSION_CREATE_FAILED_MESSAGE,
@@ -88,6 +89,8 @@ export function renderFailure(
       return signInMessage(webAppUrl);
     case "quota":
       return failure.message ?? DEFAULT_QUOTA_MESSAGE;
+    case "rate_limited":
+      return failure.message ?? DEFAULT_RATE_LIMITED_MESSAGE;
     case "forbidden":
       return failure.message ?? DEFAULT_FORBIDDEN_MESSAGE;
     case "invalid":
