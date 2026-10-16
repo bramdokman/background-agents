@@ -200,7 +200,7 @@ describe("opt-in service admission", () => {
     ["GET", "/sessions/session-1/participant-profiles"],
     ["POST", "/sessions/session-1/archive"],
     ["GET", "/repos"],
-    ["GET", "/model-preferences"],
+    ["PATCH", "/model-preferences"],
     ["GET", "/environments"],
   ])("refuses motion on %s %s, which does not opt it in", async (method, path) => {
     const response = await motionCall(
@@ -226,6 +226,7 @@ describe("opt-in service admission", () => {
     ["GET", "/sessions/session-1/events"],
     ["GET", "/sessions/session-1/messages"],
     ["GET", "/sessions/session-1/artifacts"],
+    ["GET", "/model-preferences"],
   ])("requires an actor from motion on its opt-in route %s %s", async (method, path) => {
     const response = await motionCall(method, path);
 

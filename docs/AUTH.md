@@ -511,13 +511,14 @@ its permission ceiling alone admits it nowhere.
   user, identity or assignment written. Its ceiling is sessions (create, read, collaborate,
   lifecycle) and repositories and environments (use). Sessions it starts carry
   `spawnSource: "motion"`. It has no actorless grants and receives no callbacks.
-- **Nine opt-in routes.** A route admits an opt-in service only when its policy names it in
+- **Ten opt-in routes.** A route admits an opt-in service only when its policy names it in
   `optInServices`; every other route answers 403 `service_capability_required` before the actor is
   resolved, whatever the ceiling says. Motion is named on exactly `POST /sessions`, `GET /sessions`,
-  `GET /sessions/inbox`, `POST /sessions/:id/stop`, `POST /sessions/:id/prompt` and the four reads
+  `GET /sessions/inbox`, `POST /sessions/:id/stop`, `POST /sessions/:id/prompt`, the four reads
   `GET /sessions/:id`, `GET /sessions/:id/events`, `GET /sessions/:id/messages` and
-  `GET /sessions/:id/artifacts`. Each requires an actor (403 `service_actor_required` without one).
-  The inbox and the snapshot stay closed to every other bot. Lists and the inbox read as the acting
+  `GET /sessions/:id/artifacts`, and `GET /model-preferences`. Each requires an actor (403
+  `service_actor_required` without one). `PUT` and `PATCH /model-preferences` stay closed to it. The
+  inbox and the snapshot stay closed to every other bot. Lists and the inbox read as the acting
   person, under the same visibility rules as the web.
 - **Reads reach what the person can read.** The four session reads admit any session the acting
   person may read in the web, whoever started it (the web, Teams, GitHub, an automation, another
@@ -618,9 +619,16 @@ listed here may change without notice, and new fields may appear.
   `metadata` has `number`, `lifecycleState` (`open`, `closed`, `merged`), `isDraft`, `head`, `base`,
   `repoOwner` and `repoName`; a `branch` artifact with `metadata.mode: "manual_pr"` carries `head`,
   `base` and `createPrUrl`.
-- Events, messages and artifacts, like create, list, stop and prompt, need `SCM_PROVIDER=github` and
-  answer 501 under other providers; the snapshot and the inbox work under every provider. A session
-  whose runtime cannot be reached answers 5xx: treat it as "not observed", not as a state.
+- **`GET /model-preferences?strict=true`**: `{enabledModels, revision}`. `enabledModels` lists the
+  canonical model ids this deployment has enabled; `revision` is a number that grows with every
+  change, and is 0 while nobody has changed the defaults. Providence sends `?strict=true`, so a
+  storage failure answers 503 instead of the default list, which a client cannot tell from a real
+  answer. A control plane that predates this route for motion answers 403
+  `service_capability_required`; treat the list as not observed.
+- Events, messages, artifacts and model preferences, like create, list, stop and prompt, need
+  `SCM_PROVIDER=github` and answer 501 under other providers; the snapshot and the inbox work under
+  every provider. A session whose runtime cannot be reached answers 5xx: treat it as "not observed",
+  not as a state.
 
 ### GitHub Routing
 

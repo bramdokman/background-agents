@@ -142,6 +142,7 @@ modelPreferencesRoutes.get(
     ...GITHUB_USER_OR_SERVICE_ROUTE,
     authorization: activeGlobal({
       actorlessGrants: [{ service: "slack-bot" }, { service: "github-bot" }],
+      optInServices: ["motion"],
     }),
     cacheControl: "private, no-store",
   }),

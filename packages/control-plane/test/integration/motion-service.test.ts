@@ -123,7 +123,6 @@ describe("motion service identity", () => {
     ["POST", "/sessions/SESSION/ws-token"],
     ["DELETE", "/sessions/SESSION"],
     ["GET", "/repos"],
-    ["GET", "/model-preferences"],
     ["GET", "/environments"],
     ["GET", "/automations"],
   ])("refuses %s %s before enrolling or reading anything", async (method, pathTemplate) => {
@@ -143,6 +142,43 @@ describe("motion service identity", () => {
       { error: "Human user authentication required" },
     ]).toContainEqual(await response.json());
     await expect(identityTableCounts()).resolves.toEqual(before);
+  });
+
+  it("reads model preferences for its actor", async () => {
+    const response = await signedFetch({ method: "GET", path: "/model-preferences?strict=true" });
+
+    expect(response.status).toBe(200);
+    const body = await response.json<{ enabledModels: unknown; revision: unknown }>();
+    expect(Array.isArray(body.enabledModels)).toBe(true);
+    expect(typeof body.revision).toBe("number");
+  });
+
+  it("refuses model preferences without an actor", async () => {
+    const response = await signedFetch({
+      method: "GET",
+      path: "/model-preferences?strict=true",
+      objectId: null,
+    });
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: "Forbidden",
+      code: "service_actor_required",
+    });
+  });
+
+  it("still answers 403 on PATCH /model-preferences", async () => {
+    const response = await signedFetch({
+      method: "PATCH",
+      path: "/model-preferences",
+      body: { changes: [{ modelId: MODEL, enabled: false }] },
+    });
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: "Forbidden",
+      code: "service_capability_required",
+    });
   });
 
   it("lists and reads the inbox for its actor only", async () => {

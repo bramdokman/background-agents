@@ -306,14 +306,19 @@ export function requireAll(
   };
 }
 
-/** Require any active user, with optional actorless service grants. */
+/** Require any active user, with optional actorless service grants and opt-in services. */
 export function activeGlobal(options?: {
   actorlessGrants?: readonly ActorlessServiceGrant[];
+  optInServices?: readonly OptInServiceName[];
   auditAllowed?: boolean;
 }): RouteAuthorization {
   return {
     kind: "active-global",
-    service: { kind: "actor", actorlessGrants: options?.actorlessGrants },
+    service: {
+      kind: "actor",
+      actorlessGrants: options?.actorlessGrants,
+      ...optIn(options?.optInServices),
+    },
     auditAllowed: options?.auditAllowed ?? DEFAULT_AUDIT_ALLOWED,
   };
 }

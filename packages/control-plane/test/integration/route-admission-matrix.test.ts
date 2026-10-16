@@ -666,6 +666,7 @@ describe("route admission sentinel", { timeout: MATRIX_TIMEOUT_MS }, () => {
 
     expect(withActor.sort()).toEqual(
       [
+        "GET /model-preferences",
         "GET /sessions",
         "GET /sessions/inbox",
         "GET /sessions/:id",

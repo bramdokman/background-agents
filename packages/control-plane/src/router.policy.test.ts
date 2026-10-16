@@ -418,7 +418,7 @@ describe("route policy table", () => {
     expect(new Set(granted)).toEqual(expected);
   });
 
-  it("opts motion into exactly its nine routes", () => {
+  it("opts motion into exactly its ten routes", () => {
     const expected = new Set([
       routeFor("POST", "/sessions"),
       routeFor("GET", "/sessions"),
@@ -429,6 +429,7 @@ describe("route policy table", () => {
       routeFor("GET", "/sessions/session-1/events"),
       routeFor("GET", "/sessions/session-1/messages"),
       routeFor("GET", "/sessions/session-1/artifacts"),
+      routeFor("GET", "/model-preferences"),
     ]);
     const optedIn = routes.filter(
       (route) =>
@@ -439,7 +440,12 @@ describe("route policy table", () => {
 
     expect(new Set(optedIn)).toEqual(expected);
     for (const route of optedIn) {
-      if (route.authorization.kind !== "active-user") continue;
+      if (
+        route.authorization.kind !== "active-user" &&
+        route.authorization.kind !== "active-global"
+      ) {
+        continue;
+      }
       expect(route.authorization.service.optInServices).toEqual(["motion"]);
     }
   });
@@ -500,6 +506,7 @@ describe("route policy table", () => {
       service: {
         kind: "actor",
         actorlessGrants: [{ service: "slack-bot" }, { service: "github-bot" }],
+        optInServices: ["motion"],
       },
     });
     expect(routeFor("GET", "/sessions")?.authorization).toMatchObject({
